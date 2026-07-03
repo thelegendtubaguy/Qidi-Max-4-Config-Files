@@ -17,9 +17,13 @@ Ordered invariants:
 - `OPTIMIZED_PRINT_START_HOME`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]`
 - `T[initial_tool]`
+- `{if first_layer_print_min[1] - 10 >= print_bed_min[1]}`
+- `G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000`
 - `G1 X218 Y0 F20000`
 - `M109 S[nozzle_temperature_initial_layer]`
 - `G1 E6 F300`
+- `G1 X{first_layer_print_min[0]+5} E20 F1200`
+- `G1 X{first_layer_print_min[0]} E0.8`
 - `G1 X178 E20 F1200`
 - `G1 X173 E0.8`
 - `SET_PRINT_MAIN_STATUS MAIN_STATUS=printing`
@@ -30,6 +34,7 @@ Forbidden patterns:
 - `LOADTEMP=`
 - `PURGETEMP=[nozzle_temperature_initial_layer]`
 - `SET_INPUT_SHAPER`
+- `G1 E-0.2 F1800`
 
 ### QIDI Studio start
 
@@ -43,9 +48,13 @@ Ordered invariants:
 - `OPTIMIZED_PRINT_START_HOME`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]`
 - `T[initial_tool]`
+- `{if first_layer_print_min[1] - 10 >= print_bed_min[1]}`
+- `G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000`
 - `G1 X218 Y0 F20000`
 - `M109 S[nozzle_temperature_initial_layer]`
 - `G1 E6 F300`
+- `G1 X{first_layer_print_min[0]+5} E20 F1200`
+- `G1 X{first_layer_print_min[0]} E0.8`
 - `G1 X178 E20 F1200`
 - `G1 X173 E0.8`
 - `SET_PRINT_MAIN_STATUS MAIN_STATUS=printing`
@@ -56,6 +65,7 @@ Forbidden patterns:
 - `LOADTEMP=`
 - `PURGETEMP=[nozzle_temperature_initial_layer]`
 - `SET_INPUT_SHAPER`
+- `G1 E-0.2 F1800`
 
 ## Branches
 
