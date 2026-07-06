@@ -42,9 +42,11 @@ Source paths:
 - `installer/package.yaml`
 - `installer/runtime/system_optimizations.py`
 - `installer/system/qidiclient-static-gifs.tar.gz`
+- `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py`
 
 Functional changes:
-- Interactive install can apply OS-level hardening in addition to Klipper config changes; `--skip-system-optimizations` leaves these OS-level changes disabled.
+- Install patches `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py` so `.gcode.3mf` metadata uses `Metadata/slice_info.config` `<metadata key="index" value="N"/>` for `Metadata/plate_N.gcode`, `Metadata/plate_N.json`, and `.thumbs/<job>/plate_N.png`; missing or invalid plate-index metadata falls back to plate 1.
+- Interactive install can apply OS-level hardening in addition to Klipper config changes; `--skip-system-optimizations` leaves DNS, APT, service, qidiclient GIF, and AI-service changes disabled.
 - DNS resolution uses DHCP-provided `resolvconf` output first by linking `/etc/resolv.conf` to `/run/resolvconf/resolv.conf`, clearing the static resolver head, and adding `1.1.1.1` then `8.8.8.8` as fallback resolvers.
 - APT sources are moved from stock China mirrors to Debian Bullseye `deb.debian.org` and `security.debian.org` entries without running `apt update` or package upgrades.
 - The unused `xl2tpd` VPN service and Bluetooth service are disabled when present; missing units are recorded as missing and skipped.

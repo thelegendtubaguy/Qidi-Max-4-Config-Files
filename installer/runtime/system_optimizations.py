@@ -47,6 +47,8 @@ SYSTEMD_ENABLED_STATES = frozenset({"enabled", "enabled-runtime", "linked", "lin
 SYSTEMD_ACTIVE_STATES = frozenset({"active", "reloading", "inactive", "failed", "activating", "deactivating", "maintenance", "unknown"})
 SERVICE_DISABLED_ENABLED_STATES = frozenset({"disabled", "masked", "masked-runtime"})
 SERVICE_DISABLED_ACTIVE_STATES = frozenset({"inactive"})
+MOONRAKER_METADATA_OPERATION = "moonraker_metadata_3mf_plate_index"
+MOONRAKER_METADATA_PATCH_MARKER = "def _3mf_selected_plate_index(xml_data: str) -> int:"
 
 
 class SystemOptimizationError(InstallerError):
@@ -85,10 +87,6 @@ def maybe_apply_system_optimizations(
     if policy is None:
         return state
     ledger = _ledger_with_policy(state.system_ledger, policy)
-    if policy.get("system_optimizations") != "enabled":
-        updated = _replace_system_ledger(state, ledger)
-        write_installed_state(state_path, updated)
-        return updated
     if not _system_root_allowed(paths=paths, environ=environ):
         reporter.debug(event="system_optimizations.skipped", reason="non-default-system-root")
         updated = _replace_system_ledger(state, ledger)
@@ -227,6 +225,9 @@ def restore_system_optimizations(
             _restore_service(preimage, root=root, sudo_password=sudo_password, run=run)
         elif operation_id == "qidiclient_static_gifs":
             _restore_gifs(preimage, root=root, sudo_password=sudo_password, run=run)
+        elif operation_id == MOONRAKER_METADATA_OPERATION:
+            _restore_file_preimage(preimage, paths=paths, root=root, sudo_password=sudo_password, run=run)
+            _restart_service("moonraker.service", root=root, sudo_password=sudo_password, run=run)
     reporter.line(messages.SYSTEM_RESTORE_COMPLETE)
 
 
@@ -280,7 +281,6 @@ def apply_system_optimizations(
     source: str,
     run=subprocess.run,
 ) -> dict[str, Any]:
-    _validate_qidiclient_archive(paths.installer_root / spec.qidiclient_static_gifs.archive, spec.qidiclient_static_gifs.sha256)
     root = _system_root(environ)
     sudo_password = None if _is_fake_root(root) else _sudo_password(
         reporter=reporter, input_stream=input_stream, environ=environ, run=run
@@ -289,6 +289,8 @@ def apply_system_optimizations(
     restore_preimages = dict(ledger.get("restore_preimages", {})) if isinstance(ledger.get("restore_preimages"), dict) else {}
     policy = ledger.get("policy", {}) if isinstance(ledger.get("policy"), dict) else {}
     selected_ids = _selected_operation_ids(spec, policy)
+    if "qidiclient_static_gifs" in selected_ids:
+        _validate_qidiclient_archive(paths.installer_root / spec.qidiclient_static_gifs.archive, spec.qidiclient_static_gifs.sha256)
     applied_any = False
     current_preimages: dict[str, Any] = {}
     try:
@@ -301,7 +303,7 @@ def apply_system_optimizations(
                 root=root,
                 run=run,
             )
-            if operation_id.startswith("service_"):
+            if operation_id.startswith("service_") or operation_id == MOONRAKER_METADATA_OPERATION:
                 if not preimage.get("exists", True):
                     actions.append(
                         _action_record(
@@ -310,13 +312,32 @@ def apply_system_optimizations(
                             started_at=started_at,
                             preimage=preimage,
                             desired=_desired(operation_id, spec),
-                            postflight={"service": preimage.get("service"), "exists": False},
+                            postflight=(
+                                {"path": preimage.get("path"), "exists": False}
+                                if operation_id == MOONRAKER_METADATA_OPERATION
+                                else {"service": preimage.get("service"), "exists": False}
+                            ),
                             source=source,
                             reconciled=False,
                         )
                     )
                     continue
-                if _service_state_is_disabled(preimage):
+                if operation_id == MOONRAKER_METADATA_OPERATION:
+                    if not _operation_needs_apply(operation_id, spec=spec, root=root, run=run):
+                        actions.append(
+                            _action_record(
+                                operation_id=operation_id,
+                                status="already_current",
+                                started_at=started_at,
+                                preimage=None,
+                                desired=_desired(operation_id, spec),
+                                postflight=_postflight_operation(operation_id, paths=paths, spec=spec, root=root, run=run),
+                                source=source,
+                                reconciled=False,
+                            )
+                        )
+                        continue
+                elif _service_state_is_disabled(preimage):
                     actions.append(
                         _action_record(
                             operation_id=operation_id,
@@ -461,7 +482,7 @@ def _preimage_before_apply_if_required(
     root: Path,
     run,
 ) -> dict[str, Any] | None:
-    if operation_id.startswith("service_"):
+    if operation_id.startswith("service_") or operation_id == MOONRAKER_METADATA_OPERATION:
         return _capture_operation_preimage(operation_id, paths=paths, spec=spec, root=root, run=run)
     return None
 
@@ -482,6 +503,9 @@ def _postflight_operation(
         return state
     if operation_id == "qidiclient_static_gifs":
         return _postflight_gifs(paths=paths, spec=spec, root=root)
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        target = _map_path(root, spec.moonraker_metadata_3mf.file)
+        return {"path": spec.moonraker_metadata_3mf.file, "patched": target.exists() and MOONRAKER_METADATA_PATCH_MARKER in target.read_text(encoding="utf-8")}
     return "ok"
 
 
@@ -498,6 +522,8 @@ def _capture_operation_preimage(operation_id: str, *, paths: RuntimePaths, spec:
         return {"file": _capture_file(spec.apt_sources.file, paths=paths, root=root)}
     if operation_id == "qidiclient_static_gifs":
         return _capture_gifs_preimage(paths=paths, spec=spec, root=root)
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        return _capture_file(spec.moonraker_metadata_3mf.file, paths=paths, root=root)
     if operation_id.startswith("service_"):
         service = _service_for_operation(operation_id, spec)
         return {**_service_state(service, root=root, run=run), "service": service}
@@ -514,6 +540,9 @@ def _apply_operation(operation_id: str, *, paths: RuntimePaths, spec: SystemOpti
         return
     if operation_id == "qidiclient_static_gifs":
         _apply_gifs(paths=paths, spec=spec, root=root, sudo_password=sudo_password, run=run, preimage=preimage)
+        return
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        _apply_moonraker_metadata_patch(spec=spec, root=root, sudo_password=sudo_password, run=run, preimage=preimage)
         return
     if operation_id.startswith("service_"):
         service = _service_for_operation(operation_id, spec)
@@ -559,6 +588,49 @@ def _apply_service(service: str, *, root: Path, sudo_password: str | None, run, 
         run_sudo_ignore_failure(["systemctl", "stop", service], run=run, password=sudo_password or "")
         if "." not in service:
             run_sudo_ignore_failure([f"/etc/init.d/{service}", "stop"], run=run, password=sudo_password or "")
+
+
+
+def _apply_moonraker_metadata_patch(
+    *,
+    spec: SystemOptimizationsSpec,
+    root: Path,
+    sudo_password: str | None,
+    run,
+    preimage: dict[str, Any],
+) -> None:
+    path = spec.moonraker_metadata_3mf.file
+    mapped = _map_path(root, path)
+    _reject_symlink_path(mapped, root=root)
+    patched = _patched_moonraker_metadata_text(mapped.read_text(encoding="utf-8"))
+    _write_file_preserving_preimage(path, patched, preimage=preimage, root=root, sudo_password=sudo_password, run=run)
+    _restart_service(spec.moonraker_metadata_3mf.restart_service, root=root, sudo_password=sudo_password, run=run)
+
+
+
+def _patched_moonraker_metadata_text(text: str) -> str:
+    if MOONRAKER_METADATA_PATCH_MARKER in text:
+        return text
+    helper = '''\n\ndef _3mf_plate_path(plate_index: int, suffix: str) -> str:\n    return f"Metadata/plate_{plate_index}.{suffix}"\n\n\ndef _3mf_slice_info_root(xml_data: str):\n    try:\n        return ET.fromstring(xml_data)\n    except Exception:\n        return None\n\n\ndef _3mf_selected_plate_index(xml_data: str) -> int:\n    root = _3mf_slice_info_root(xml_data)\n    if root is None:\n        return 1\n    try:\n        for item in root.findall(".//metadata"):\n            if item.get("key") == "index":\n                index = int(item.get("value", "1"))\n                return index if index > 0 else 1\n    except Exception:\n        pass\n    return 1\n'''
+    text = text.replace('_3MF_PLATE_1_GCODE_PATH = "Metadata/plate_1.gcode"\n', '_3MF_PLATE_1_GCODE_PATH = "Metadata/plate_1.gcode"\n' + helper, 1)
+    replacements = {
+        '    plate_num = 1\n    try:\n': '    plate_num = 1\n    plate_index = 1\n    try:\n',
+        '            tmp_plate_1_path = ""\n            tmp_plate_1_gcode_path = ""\n            with zipfile.ZipFile(_3mf_path) as zf:\n': '            tmp_plate_path = ""\n            tmp_plate_gcode_path = ""\n            with zipfile.ZipFile(_3mf_path) as zf:\n                names = zf.namelist()\n                if _3MF_SLICE_INFO_PATH in names:\n                    plate_index = _3mf_selected_plate_index(\n                        zf.read(_3MF_SLICE_INFO_PATH).decode("utf-8", "replace")\n                    )\n',
+        '                if _3MF_THUMB_PATH_ALL in zf.namelist():': '                if _3MF_THUMB_PATH_ALL in names:',
+        '                if _3MF_SLICE_INFO_PATH in zf.namelist():': '                if _3MF_SLICE_INFO_PATH in names:',
+        '                if _3MF_PROJECT_SETTINGS_PATH in zf.namelist():': '                if _3MF_PROJECT_SETTINGS_PATH in names:',
+        '                if _3MF_PLATE_1_PATH in zf.namelist():\n                    tmp_plate_1_path = zf.extract(\n                        _3MF_PLATE_1_PATH, path=tmp_dir_name\n                    )\n                if _3MF_PLATE_1_GCODE_PATH in zf.namelist():\n                    tmp_plate_1_gcode_path = zf.extract(\n                        _3MF_PLATE_1_GCODE_PATH, path=tmp_dir_name\n                    )\n': '                plate_json_path = _3mf_plate_path(plate_index, "json")\n                plate_gcode_path = _3mf_plate_path(plate_index, "gcode")\n                if plate_json_path in names:\n                    tmp_plate_path = zf.extract(plate_json_path, path=tmp_dir_name)\n                if plate_gcode_path in names:\n                    tmp_plate_gcode_path = zf.extract(plate_gcode_path, path=tmp_dir_name)\n',
+        '                plate = ET.fromstring(xml_data).find("plate")\n                for metadata_plate in plate.findall(\'metadata\'):\n': '                xml_root = _3mf_slice_info_root(xml_data)\n                plate = xml_root.find("plate") if xml_root is not None else None\n                if plate is not None:\n                    for metadata_plate in plate.findall(\'metadata\'):\n',
+        "                    if metadata_plate.get('key') == 'prediction':\n                        prediction = metadata_plate.get('value')\n                    elif metadata_plate.get('key') == 'weight':\n                        weight = metadata_plate.get('value')\n                    elif metadata_plate.get('key') == 'nozzle_diameters':\n                        nozzle_diameters = metadata_plate.get('value')\n                metadata[\"estimated_time\"] = int(prediction) \n                metadata[\"filament_weight_total\"] = float(weight)   \n                metadata[\"nozzle_diameter\"] = float(nozzle_diameters) \n                metadata[\"filament_total\"] = sum(\n                    float(filament.get(\"used_m\", 0.0))\n                    for filament in plate.findall(\"filament\")\n                ) * 1000\n                plate_num = len(ET.fromstring(xml_data).findall(\"plate\"))\n": "                        if metadata_plate.get('key') == 'prediction':\n                            prediction = metadata_plate.get('value')\n                        elif metadata_plate.get('key') == 'weight':\n                            weight = metadata_plate.get('value')\n                        elif metadata_plate.get('key') == 'nozzle_diameters':\n                            nozzle_diameters = metadata_plate.get('value')\n                    metadata[\"estimated_time\"] = int(prediction) \n                    metadata[\"filament_weight_total\"] = float(weight)   \n                    metadata[\"nozzle_diameter\"] = float(nozzle_diameters) \n                    metadata[\"filament_total\"] = sum(\n                        float(filament.get(\"used_m\", 0.0))\n                        for filament in plate.findall(\"filament\")\n                    ) * 1000\n                    plate_num = len(xml_root.findall(\"plate\"))\n",
+        '            if os.path.exists(tmp_plate_1_path):\n                with open(tmp_plate_1_path, "r", encoding="utf-8") as file:\n                    plate_1_data = file.read()\n                plate_json = json.loads(plate_1_data)\n': '            if os.path.exists(tmp_plate_path):\n                with open(tmp_plate_path, "r", encoding="utf-8") as file:\n                    plate_data = file.read()\n                plate_json = json.loads(plate_data)\n',
+        '            if os.path.exists(tmp_plate_1_gcode_path):\n                slicer, ident = get_slicer(tmp_plate_1_gcode_path)\n': '            if os.path.exists(tmp_plate_gcode_path):\n                slicer, ident = get_slicer(tmp_plate_gcode_path)\n',
+        "        'relative_path': generate_thumb_path(dest_path, \"/home/qidi/printer_data/gcodes/\", 1)": "        'relative_path': generate_thumb_path(dest_path, \"/home/qidi/printer_data/gcodes/\", plate_index)",
+    }
+    for old, new in replacements.items():
+        if old not in text:
+            raise SystemOptimizationError("Moonraker metadata.py did not match expected QIDI 3MF extraction shape.")
+        text = text.replace(old, new, 1)
+    return text
 
 
 
@@ -661,6 +733,9 @@ def _restore_preimage_map(preimages: dict[str, Any], *, paths: RuntimePaths, roo
             _restore_service(preimage, root=root, sudo_password=sudo_password, run=run)
         elif operation_id == "qidiclient_static_gifs":
             _restore_gifs(preimage, root=root, sudo_password=sudo_password, run=run)
+        elif operation_id == MOONRAKER_METADATA_OPERATION:
+            _restore_file_preimage(preimage, paths=paths, root=root, sudo_password=sudo_password, run=run)
+            _restart_service("moonraker.service", root=root, sudo_password=sudo_password, run=run)
 
 
 
@@ -695,6 +770,8 @@ def _restore_file_preimage(preimage: dict[str, Any], *, paths: RuntimePaths, roo
         try:
             run_sudo_or_raise(["install", "-D", "-m", preimage.get("mode", "0644"), str(backup_path), tmp_path], messages.SYSTEM_RESTORE_FAILED, run=run, password=sudo_password or "")
             run_sudo_or_raise(["mv", "-f", tmp_path, path], messages.SYSTEM_RESTORE_FAILED, run=run, password=sudo_password or "")
+            if "uid" in preimage and "gid" in preimage:
+                run_sudo_or_raise(["chown", f"{preimage['uid']}:{preimage['gid']}", path], messages.SYSTEM_RESTORE_FAILED, run=run, password=sudo_password or "")
         finally:
             run_sudo_ignore_failure(["rm", "-f", tmp_path], run=run, password=sudo_password or "")
 
@@ -771,8 +848,46 @@ def _capture_file(path: str, *, paths: RuntimePaths, root: Path) -> dict[str, An
     backup_path = backup_root / path.lstrip("/")
     backup_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(mapped, backup_path)
-    preimage.update({"type": "file", "backup_path": str(backup_path), "mode": f"{mapped.stat().st_mode & 0o777:04o}"})
+    stat = mapped.stat()
+    preimage.update({
+        "type": "file",
+        "backup_path": str(backup_path),
+        "mode": f"{stat.st_mode & 0o777:04o}",
+        "uid": stat.st_uid,
+        "gid": stat.st_gid,
+    })
     return preimage
+
+
+def _write_file_preserving_preimage(
+    path: str,
+    content: str,
+    *,
+    preimage: dict[str, Any],
+    root: Path,
+    sudo_password: str | None,
+    run,
+) -> None:
+    mapped = _map_path(root, path)
+    mode = str(preimage.get("mode", "0644"))
+    if _is_fake_root(root):
+        mapped.parent.mkdir(parents=True, exist_ok=True)
+        _reject_symlink_path(mapped, root=root)
+        mapped.write_text(content, encoding="utf-8")
+        mapped.chmod(int(mode, 8))
+        return
+    _reject_parent_symlink_path(mapped, root=root)
+    if mapped.is_symlink():
+        raise SystemOptimizationError(f"Refusing to write through symlink: {path}")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        handle.write(content)
+        tmp = handle.name
+    try:
+        run_sudo_or_raise(["install", "-D", "-m", mode, tmp, path], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+        if "uid" in preimage and "gid" in preimage:
+            run_sudo_or_raise(["chown", f"{preimage['uid']}:{preimage['gid']}", path], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+    finally:
+        Path(tmp).unlink(missing_ok=True)
 
 
 def _write_file(path: str, content: str, *, root: Path, sudo_password: str | None, run) -> None:
@@ -874,6 +989,10 @@ def _reject_operation_unsafe_for_compare(operation_id: str, *, spec: SystemOptim
                             _reject_symlink_path(destination / member.name, root=root)
             except tarfile.TarError as exc:
                 raise SystemOptimizationError("qidiclient static GIF archive could not be read.") from exc
+        return
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        _reject_symlink_path(_map_path(root, spec.moonraker_metadata_3mf.file), root=root)
+        return
 
 
 def _operation_needs_apply(operation_id: str, *, spec: SystemOptimizationsSpec, root: Path, run) -> bool:
@@ -898,6 +1017,9 @@ def _operation_needs_apply(operation_id: str, *, spec: SystemOptimizationsSpec, 
             _map_path(root, spec.qidiclient_static_gifs.destination),
             Path(spec.qidiclient_static_gifs.archive),
         )
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        path = _map_path(root, spec.moonraker_metadata_3mf.file)
+        return path.exists() and MOONRAKER_METADATA_PATCH_MARKER not in path.read_text(encoding="utf-8")
     if operation_id.startswith("service_"):
         service = _service_for_operation(operation_id, spec)
         state = _service_state(service, root=root, run=run)
@@ -909,7 +1031,10 @@ def _operation_needs_apply(operation_id: str, *, spec: SystemOptimizationsSpec, 
 
 
 def _selected_operation_ids(spec: SystemOptimizationsSpec, policy: dict[str, Any]) -> tuple[str, ...]:
-    ids = ["dns", "apt_sources", "qidiclient_static_gifs"]
+    ids = [MOONRAKER_METADATA_OPERATION]
+    if policy.get("system_optimizations") != "enabled":
+        return tuple(ids)
+    ids.extend(["dns", "apt_sources", "qidiclient_static_gifs"])
     ids.extend(f"service_{service}" for service in spec.services.disable)
     if policy.get("ai_detection") == "disable":
         ids.extend(f"service_{item.service}" for item in spec.services.optional_disable)
@@ -947,6 +1072,8 @@ def _desired(operation_id: str, spec: SystemOptimizationsSpec) -> dict[str, Any]
         return {"sha256": hashlib.sha256(spec.apt_sources.content.encode("utf-8")).hexdigest()}
     if operation_id == "qidiclient_static_gifs":
         return {"archive_sha256": spec.qidiclient_static_gifs.sha256}
+    if operation_id == MOONRAKER_METADATA_OPERATION:
+        return {"path": spec.moonraker_metadata_3mf.file, "restart_service": spec.moonraker_metadata_3mf.restart_service}
     if operation_id.startswith("service_"):
         return {"enabled": "disabled", "active": "inactive"}
     return {}

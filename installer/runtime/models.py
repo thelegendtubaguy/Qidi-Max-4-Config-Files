@@ -176,12 +176,19 @@ class SystemQidiClientStaticGifsSpec:
 
 
 @dataclass(frozen=True)
+class SystemMoonrakerMetadata3mfSpec:
+    file: str
+    restart_service: str
+
+
+@dataclass(frozen=True)
 class SystemOptimizationsSpec:
     enabled_by_default: bool
     dns: SystemDnsSpec
     apt_sources: SystemAptSourcesSpec
     services: SystemServicesSpec
     qidiclient_static_gifs: SystemQidiClientStaticGifsSpec
+    moonraker_metadata_3mf: SystemMoonrakerMetadata3mfSpec
 
 
 @dataclass(frozen=True)
