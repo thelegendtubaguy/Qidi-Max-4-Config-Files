@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.06.15.1"
+  version: "26.07.03.1"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -25,6 +25,7 @@ package:
     - "26.06.11.1"
     - "26.06.13.1"
     - "26.06.15.1"
+    - "26.07.03.1"
 
 firmware:
   supported:
@@ -401,3 +402,6 @@ system_optimizations:
     sha256: 616c11226addbc09c9d4dc83b0e1d359f15e2f4c1d84c1d8bb008f841d616fce
     destination: /home/qidi/QIDI_Client/access
     restart_service: qidi-client.service
+  moonraker_metadata_3mf:
+    file: /home/qidi/moonraker/moonraker/components/file_manager/metadata.py
+    restart_service: moonraker.service

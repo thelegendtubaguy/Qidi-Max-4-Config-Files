@@ -24,30 +24,48 @@ T[initial_tool]
 M140 S[bed_temperature_initial_layer_single]
 ; Set chamber target temperature (do not wait).
 M141 S[chamber_temperature]
-; Use absolute coordinates for the front purge line.
+; Use absolute coordinates for the front prime line.
 G90
-; Move to the front purge start point before the first-layer nozzle wait.
+; Move to the adaptive front prime start point when the first layer leaves room.
 G1 Z5 F1200
+{if first_layer_print_min[1] - 10 >= print_bed_min[1]}
+{if first_layer_print_min[0]+45 <= print_bed_max[0]}
+G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000
+{else}
 G1 X218 Y0 F20000
-; Wait for nozzle to be fully back at first-layer temperature at the purge start.
+{endif}
+{else}
+G1 X218 Y0 F20000
+{endif}
+; Wait for nozzle to be fully back at first-layer temperature at the prime start.
 M109 S[nozzle_temperature_initial_layer]
-; Use relative extrusion for the purge line.
+; Use relative extrusion for the prime line.
 M83
 ; Reset extruder position before priming.
 G92 E0
-; Draw a fat front purge line to consume high-temp ooze from the final heat-up.
+; Draw a fat front prime line to consume high-temp ooze from the final heat-up.
 G1 Z0.5 F900
 G1 Z{initial_layer_print_height} F1200
 G1 E6 F300
 M106 S200
+{if first_layer_print_min[1] - 10 >= print_bed_min[1]}
+{if first_layer_print_min[0]+45 <= print_bed_max[0]}
+G1 X{first_layer_print_min[0]+5} E20 F1200
+G1 F6000
+G1 X{first_layer_print_min[0]} E0.8
+{else}
 G1 X178 E20 F1200
 G1 F6000
 G1 X173 E0.8
-; Relieve pressure before the nozzle lifts and the startup setup block runs.
-G1 E-0.2 F1800
-; Lift off after the tapered finish and pressure relief.
+{endif}
+{else}
+G1 X178 E20 F1200
+G1 F6000
+G1 X173 E0.8
+{endif}
+; Lift off after the tapered finish.
 G1 Z1 F1200
-; Turn the part cooling fan back off after the purge.
+; Turn the part cooling fan back off after the prime line.
 M106 S0
 ; Reset extruder position for the print proper.
 G92 E0

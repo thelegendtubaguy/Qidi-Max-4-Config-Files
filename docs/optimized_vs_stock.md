@@ -42,9 +42,11 @@ Source paths:
 - `installer/package.yaml`
 - `installer/runtime/system_optimizations.py`
 - `installer/system/qidiclient-static-gifs.tar.gz`
+- `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py`
 
 Functional changes:
-- Interactive install can apply OS-level hardening in addition to Klipper config changes; `--skip-system-optimizations` leaves these OS-level changes disabled.
+- Install patches `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py` so `.gcode.3mf` metadata uses `Metadata/slice_info.config` `<metadata key="index" value="N"/>` for `Metadata/plate_N.gcode`, `Metadata/plate_N.json`, and `.thumbs/<job>/plate_N.png`; missing or invalid plate-index metadata falls back to plate 1.
+- Interactive install can apply OS-level hardening in addition to Klipper config changes; `--skip-system-optimizations` leaves DNS, APT, service, qidiclient GIF, and AI-service changes disabled.
 - DNS resolution uses DHCP-provided `resolvconf` output first by linking `/etc/resolv.conf` to `/run/resolvconf/resolv.conf`, clearing the static resolver head, and adding `1.1.1.1` then `8.8.8.8` as fallback resolvers.
 - APT sources are moved from stock China mirrors to Debian Bullseye `deb.debian.org` and `security.debian.org` entries without running `apt update` or package upgrades.
 - The unused `xl2tpd` VPN service and Bluetooth service are disabled when present; missing units are recorded as missing and skipped.
@@ -118,7 +120,7 @@ Functional changes:
 - `OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE` no longer calls `_OPTIMIZED_HOME_Z_FROM_SAFE_POINT`; Z homing for mesh happens later through `_OPTIMIZED_G29_HOME_Z_OR_FULL`.
 - Slicer start G-code selects `T[initial_tool]` before the front prime line so prime extrusion is attributed to the initial object filament.
 - Slicer start G-code does not call `SET_INPUT_SHAPER`, so Klipper uses saved `shaper_type_x` / `shaper_type_y` calibration state from `config/printer.cfg` instead of forcing per-print algorithms.
-- The front prime line uses the first-layer nozzle temperature and performs a short centered prime at the front of the bed.
+- The front prime line uses the first-layer nozzle temperature, moves in front of the first-layer object bounds when `first_layer_print_min` leaves front-bed room, falls back to the fixed front-center line when that adaptive path is unavailable, and lifts without a post-prime retract.
 
 ## Filament cutting, flushing, unloading, and end-print behavior
 

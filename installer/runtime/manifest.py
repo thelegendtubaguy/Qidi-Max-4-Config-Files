@@ -28,6 +28,7 @@ from .models import (
     SystemOptionalServiceSpec,
     SystemOptimizationsSpec,
     SystemQidiClientStaticGifsSpec,
+    SystemMoonrakerMetadata3mfSpec,
     SystemServicesSpec,
 )
 
@@ -263,6 +264,7 @@ def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec 
     apt_raw = _require_mapping(system_raw, "apt_sources")
     services_raw = _require_mapping(system_raw, "services")
     gifs_raw = _require_mapping(system_raw, "qidiclient_static_gifs")
+    moonraker_metadata_raw = _require_mapping(system_raw, "moonraker_metadata_3mf")
     optional_raw = services_raw.get("optional_disable", [])
     if not isinstance(optional_raw, list):
         raise ManifestValidationError("Expected list at optional_disable.")
@@ -301,6 +303,10 @@ def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec 
             sha256=_require_sha256(gifs_raw, "sha256"),
             destination=_validate_absolute_path(_require_str(gifs_raw, "destination")),
             restart_service=_require_str(gifs_raw, "restart_service"),
+        ),
+        moonraker_metadata_3mf=SystemMoonrakerMetadata3mfSpec(
+            file=_validate_absolute_path(_require_str(moonraker_metadata_raw, "file")),
+            restart_service=_require_str(moonraker_metadata_raw, "restart_service"),
         ),
     )
 
