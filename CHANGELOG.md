@@ -1,5 +1,20 @@
 # Changelog
 
+## 26.07.03.1
+- Patched Moonraker `.gcode.3mf` plate metadata extraction so plate-indexed G-code, JSON, and thumbnails resolve from `Metadata/slice_info.config`.
+- Moved the front prime line ahead of first-layer object bounds when bed room exists, with the fixed front-center line retained as fallback.
+
+## 26.06.15.1
+- Tightened interactive installer prompts to accept explicit `Y/YES` or `N/NO` and re-prompt on invalid input.
+- Prompted for system optimization policy again during interactive reinstall while keeping stored policy reuse for noninteractive installs and auto-update.
+
+## 26.06.13.1
+- Added dual QIDI Box tool-slot mapping support and runtime reconciliation when recorded box counts change.
+
+## 26.06.11.1
+- Added installer support for QIDI Max 4 firmware `01.01.06.04` alongside the existing `01.01.06.03` baseline.
+- Added firmware-scoped stock baselines and guarded installer patch handling for supported firmware versions.
+
 ## 26.06.04.1
 - Preserved the active print Z offset across startup reset, KAMP mesh save, and offset reapply.
 - Kept retained-filament startup waiting at the purge chute while bed and chamber reach target temperature.
