@@ -120,7 +120,7 @@ Functional changes:
 - `OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE` no longer calls `_OPTIMIZED_HOME_Z_FROM_SAFE_POINT`; Z homing for mesh happens later through `_OPTIMIZED_G29_HOME_Z_OR_FULL`.
 - Slicer start G-code selects `T[initial_tool]` before the front prime line so prime extrusion is attributed to the initial object filament.
 - Slicer start G-code does not call `SET_INPUT_SHAPER`, so Klipper uses saved `shaper_type_x` / `shaper_type_y` calibration state from `config/printer.cfg` instead of forcing per-print algorithms.
-- The front prime line uses the first-layer nozzle temperature and performs a short centered prime at the front of the bed.
+- The front prime line uses the first-layer nozzle temperature, moves in front of the first-layer object bounds when `first_layer_print_min` leaves front-bed room, falls back to the fixed front-center line when that adaptive path is unavailable, and lifts without a post-prime retract.
 
 ## Filament cutting, flushing, unloading, and end-print behavior
 
