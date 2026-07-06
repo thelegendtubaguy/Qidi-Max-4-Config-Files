@@ -26,8 +26,8 @@ State-file contract:
 - Public installer bundles write `config/tltg_optimized_state.yaml schema_version: 1`.
 - `config/tltg_optimized_state.yaml system_ledger` is optional and stores installer-managed OS hardening policy, action records, and restore preimages for paths outside `config/`.
 - `system_ledger.policy.system_optimizations` stores `enabled` or `disabled`; `system_ledger.policy.ai_detection` stores `disable`, `keep_enabled`, or `unset`.
-- `system_ledger.restore_preimages` preserves the first preimage captured before the installer changed DNS, APT sources, systemd services, or qidiclient GIF files.
-- Auto-update applies or reapplies system optimizations only when `system_ledger.policy.system_optimizations = enabled`; missing `system_ledger.policy` skips OS hardening reconciliation.
+- `system_ledger.restore_preimages` preserves the first preimage captured before the installer changed `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py`, DNS, APT sources, systemd services, or qidiclient GIF files.
+- Auto-update applies or reapplies the Moonraker 3MF metadata patch whenever system reconciliation runs; DNS, APT, service, qidiclient GIF, and AI-service reconciliation require `system_ledger.policy.system_optimizations = enabled`; missing `system_ledger.policy` skips system reconciliation.
 - `config/tltg_optimized_state.yaml` stores package identity, install timestamp, detected install firmware, backup label, managed-tree file hashes, and the guarded patch ledger used for uninstall.
 - `config/tltg_optimized_state.yaml` and `/home/qidi/printer_data/.tltg_optimized_recovery_required` are written with mode `0600`; existing broader file modes are replaced.
 - Public installer bundles accept only schema-valid installed-state ledgers compatible with `schema_version: 1`.
@@ -82,12 +82,13 @@ Install statuses and terminal messages:
 - Tool-slot correction input normalized to `N` or `NO` prints `Tool-slot mappings left unchanged.` and preserves the existing saved variables.
 - After install state-file write and before final install success output, interactive install prompts `Would you like to apply system hardening and OS optimizations?` when `installer/package.yaml system_optimizations` is present.
 - Interactive reinstall prompts again even when `config/tltg_optimized_state.yaml system_ledger.policy.system_optimizations` already stores `enabled` or `disabled`; noninteractive install and auto-update reuse the stored policy.
+- Install applies the Moonraker 3MF metadata patch to `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py` before optional OS hardening; `.gcode.3mf` extraction reads `Metadata/slice_info.config`, uses `<metadata key="index" value="N"/>` for `Metadata/plate_N.gcode`, `Metadata/plate_N.json`, and `generate_thumb_path(..., N)`, falls back to plate 1 when the index is missing or invalid, records the original file in `system_ledger.restore_preimages`, and restarts `moonraker.service` after a patch or restore.
 - Accepted system optimization confirmation writes or reconciles DHCP-first DNS with `1.1.1.1` and `8.8.8.8` fallbacks, Debian Bullseye APT sources, qidiclient static GIFs, disabled `xl2tpd`, disabled `bluetooth`, and optional `algo_app.service` disablement.
 - Service operations record `systemctl is-enabled` and `systemctl is-active` state before changing units; missing units are recorded with action status `missing` and are skipped without a restore preimage.
 - Service disablement runs `systemctl disable --now <service>`, then an explicit `systemctl stop <service>`; SysV-style service names without a dot also run `/etc/init.d/<service> stop` as a quiet fallback before postflight checks.
 - When AI detection is kept enabled, `algo_app.service` is recorded with action status `skipped_by_policy` and no restore preimage.
 - The qidiclient static GIF operation requires `/home/qidi/QIDI_Client/access` to exist, backs up replaced files under `/home/qidi/QIDI_Client/access/.gif-backup-<timestamp>`, preserves existing replaced-file owner and mode, restarts `qidi-client.service` when present, and verifies installed GIF hashes against `installer/system/qidiclient-static-gifs.tar.gz`.
-- Declined system optimization confirmation writes `system_ledger.policy.system_optimizations = disabled` and skips DNS, APT, qidiclient GIF, VPN, Bluetooth, and AI backend changes.
+- Declined system optimization confirmation writes `system_ledger.policy.system_optimizations = disabled` and skips DNS, APT, qidiclient GIF, VPN, Bluetooth, and AI backend changes; the Moonraker 3MF metadata patch still applies when `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py` matches the supported QIDI extraction shape.
 - When system optimizations are accepted, install prompts `Would you like us to disable QIDI AI detection features?`; accepted confirmation disables the backend service and prints touchscreen guidance for `Settings -> Printing Options -> Spaghetti Detection` and `Foreign Object Detection`, and input normalized to `N` or `NO` preserves `algo_app.service`.
 - `install.sh --skip-system-optimizations` records disabled system optimization policy and skips OS hardening.
 - `install.sh --disable-ai-detection` records `system_ledger.policy.ai_detection = disable`; `install.sh --keep-ai-detection` records `system_ledger.policy.ai_detection = keep_enabled`.
@@ -117,7 +118,7 @@ Auto-update runtime behavior:
 - `auto-update-check` acquires `/home/qidi/printer_data/.tltg_optimized_installer.lock`, stops when `/home/qidi/printer_data/.tltg_optimized_recovery_required` exists, fetches the latest release checksum from GitHub, and compares it to `config/tltg_optimized_auto_update_state.json latest_checksum`.
 - Checksum fetch failure prints `Auto-update skipped because the latest release checksum could not be fetched.`, exits zero, and does not run the installer.
 - Matching checksums print `Auto-update check: already current.` and do not run the installer bundle replacement path.
-- Matching checksums still reconcile system optimizations when `system_ledger.policy.system_optimizations = enabled`, the printer is idle, and the live OS state differs from the desired hardening state.
+- Matching checksums still reconcile the Moonraker 3MF metadata patch when system reconciliation runs; opted-in OS hardening is reconciled when `system_ledger.policy.system_optimizations = enabled`, the printer is idle, and the live OS state differs from the desired hardening state.
 - Missing checksum state atomically writes the fetched checksum to `config/tltg_optimized_auto_update_state.json`, prints `Auto-update check: initialized latest release state.`, and does not run the installer.
 - Changed checksums query local Moonraker `print_stats.state`; `printing` or `paused` prints `Auto-update skipped because a print is active or paused.` and does not run the installer.
 - Unknown printer state prints `Auto-update skipped because printer state could not be determined.` and does not run the installer.
@@ -146,7 +147,7 @@ Uninstall statuses and terminal messages:
 - Final uninstall success output lists only guarded patch targets preserved as user-modified.
 - Final uninstall success output lists managed-tree drift only when `config/tltg-optimized-macros/` contained local modifications before removal.
 - During interactive uninstall, after the existing uninstall confirmation and before backup creation, uninstall prompts `Would you like to restore system settings changed by the optimized installer?` when `config/tltg_optimized_state.yaml system_ledger.restore_preimages` contains system changes.
-- Accepted system restore confirmation restores DNS, APT source, service state, qidiclient GIF files, and AI backend service state recorded in `system_ledger.restore_preimages`.
+- Accepted system restore confirmation restores `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py`, DNS, APT source, service state, qidiclient GIF files, and AI backend service state recorded in `system_ledger.restore_preimages`.
 - Service restore skips any unit that no longer exists at restore time; qidiclient GIF restore copies replaced files from the recorded `/home/qidi/QIDI_Client/access/.gif-backup-<timestamp>` directory and removes files created by the static GIF archive.
 - Declined system restore confirmation removes Klipper config changes and leaves current OS hardening state in place.
 - `install.sh --uninstall --keep-system-optimizations` skips system setting restore while uninstalling Klipper config changes.
