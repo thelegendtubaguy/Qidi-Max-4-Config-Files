@@ -38,8 +38,18 @@ jobs:
             git show HEAD^:installer/package.yaml > previous-package.yaml
             previous=$(python3 - <<'PY'
           from pathlib import Path
-          from installer.runtime.manifest import load_manifest
-          print(load_manifest(Path('previous-package.yaml')).package.version)
+          in_package = False
+          for line in Path('previous-package.yaml').read_text(encoding='utf-8').splitlines():
+              if line == 'package:':
+                  in_package = True
+                  continue
+              if in_package and line and not line.startswith(' '):
+                  break
+              if in_package and line.startswith('  version:'):
+                  print(line.split(':', 1)[1].strip().strip(chr(34)).strip(chr(39)))
+                  break
+          else:
+              raise SystemExit('Could not read package.version from previous-package.yaml')
           PY
             )
             rm -f previous-package.yaml
