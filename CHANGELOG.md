@@ -1,5 +1,8 @@
 # Changelog
 
+## 26.07.03.2
+- Fixed `26.07.03.1` release tooling so the publish workflow can compare the previous package version without requiring the old manifest to match the current schema.
+
 ## 26.07.03.1
 - Patched Moonraker `.gcode.3mf` plate metadata extraction so plate-indexed G-code, JSON, and thumbnails resolve from `Metadata/slice_info.config`.
 - Moved the front prime line ahead of first-layer object bounds when bed room exists, with the fixed front-center line retained as fallback.
