@@ -47,14 +47,44 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertIn("printer.save_variables.variables.z_offset|default(0)|float", gcode)
         self.assertIn("SET_GCODE_VARIABLE MACRO=_km_apply_print_offset VARIABLE=captured_z_offset VALUE={z}", gcode)
         self.assertIn("SET_GCODE_VARIABLE MACRO=_km_apply_print_offset VARIABLE=captured_z_offset_valid VALUE=1", gcode)
-        self.assertIn('action_respond_info("Your Z Offset will be set to: %.3f" % z)', gcode)
+        self.assertEqual(gcode.count('action_respond_info("Your Z Offset will be set to: %.3f" % z)'), 1)
         self.assert_ordered(
             gcode,
             "SET_GCODE_VARIABLE MACRO=_km_apply_print_offset VARIABLE=captured_z_offset VALUE={z}",
+            'action_respond_info("Your Z Offset will be set to: %.3f" % z)',
             "SET_GCODE_OFFSET Z=0 MOVE=0",
-            "captured_z_offset|float",
+            "{% elif params.SET|default(0)|int %}",
             "SET_GCODE_OFFSET Z={z} MOVE=0",
         )
+
+    def test_filament_sensor_policy_preserves_events_and_box_recovery(self):
+        text = (OPTIMIZED_MACRO_ROOT / "filament.cfg").read_text(encoding="utf-8")
+        self.assertIn("[filament_switch_sensor filament_switch_sensor]", text)
+        self.assertIn("pause_on_runout: False", text)
+        self.assertIn("runout_gcode:\n  OPTIMIZED_FILAMENT_SENSOR_RUNOUT", text)
+        self.assertIn("insert_gcode:\n  OPTIMIZED_FILAMENT_SENSOR_INSERTED", text)
+
+        control = self._macro_gcode("TLTG_FILAMENT_SENSOR")
+        self.assertIn("variable_pause_enabled: 1", text)
+        self.assertIn("SET_GCODE_VARIABLE MACRO=TLTG_FILAMENT_SENSOR VARIABLE=pause_enabled VALUE={pause_enabled}", control)
+        self.assertIn("ENABLE=0 or ENABLE=1", control)
+        self.assertIn("QIDI Box runout handling remains enabled.", control)
+
+        runout = self._macro_gcode("OPTIMIZED_FILAMENT_SENSOR_RUNOUT")
+        self.assertIn("TOOLHEAD SENSOR TRIPPED", runout)
+        self.assertIn("box_enabled", runout)
+        self.assertIn("AUTO_RELOAD_FILAMENT", runout)
+        self.assertIn("SET_PRINT_SUB_STATUS SUB_STATUS=box_filament_exhausted", runout)
+        self.assertIn("SET_PRINT_SUB_STATUS SUB_STATUS=ext_filament_exhausted", runout)
+        self.assert_ordered(runout, "QIDI Box handling", "PAUSE", "M118 Filament run out")
+
+        inserted = self._macro_gcode("OPTIMIZED_FILAMENT_SENSOR_INSERTED")
+        self.assertIn("TOOLHEAD SENSOR UNTRIPPED", inserted)
+        self.assertIn("M118 Filament detected", inserted)
+
+        resume = self._macro_gcode("RESUME")
+        self.assertIn("TRY_RESUME_PRINT", resume)
+        self.assertIn("sensor.pause_enabled|int == 0 or printer['filament_switch_sensor filament_switch_sensor'].filament_detected == True", resume)
 
     def test_optimized_g29_always_calibrates_kamp_mesh(self):
         gcode = self._macro_gcode("OPTIMIZED_G29_ZSAFE")

@@ -33,6 +33,7 @@ Functional changes:
 - Guarded installer patches route virtual-SD print errors to `OPTIMIZED_CANCEL_PRINT_ON_ERROR`, which cancels without parking or moving the toolhead during error handling and calls `_KM_CANCEL_PRINT_BASE` after heater shutdown, fan shutdown, pause-state restore, `G31`, and `CLEAR_PAUSE`.
 - Guarded installer patches set stock `TIMELAPSE_TAKE_FRAME` `variable_verbose` to `False`, so disabled printer timelapse ignores slicer frame requests without per-layer console messages.
 - The installer deletes QIDI's stock `[homing_override]` from `config/klipper-macros-qd/kinematics.cfg` only when the stock section hash matches a supported firmware baseline, then runtime `G28` is handled by `installer/klipper/tltg-optimized-macros/kinematics.cfg`.
+- The installer replaces the stock toolhead filament-switch section and `RESUME` macro only when their hashes match a supported firmware baseline, so `TLTG_FILAMENT_SENSOR ENABLE=0|1` can suppress external-spool runout pausing without suppressing the sensor event, its status reporting, QIDI Box recovery, or an external-spool resume.
 - On firmware `01.01.06.04`, guarded stock-baseline patches preserve QIDI's closed-loop X/Y `query_cycle:10` and `trigger_*` fields, `Chamber_Thermal_Protection_Sensor max_temp:170`, and official `[fila25]` `PA6-CF` naming; firmware `01.01.06.03` does not require `.04`-only `trigger_*` fields.
 - Uninstall restores the stored stock `[homing_override]` section when the optimized section deletion is still intact.
 
@@ -108,9 +109,8 @@ Functional changes:
 - Slicer start G-code enters optimized startup through `OPTIMIZED_PRINT_START_HOME` and `OPTIMIZED_START_PRINT_FILAMENT_PREP` instead of the stock `print_start` path.
 - `OPTIMIZED_PRINT_START_HOME` cancels any pending `_optimized_end_fan_cooldown_off`, preheats the hotend to probing temperature, sets the UI sub-status, and runs optimized `G28`.
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP` owns the retained-filament, QIDI Box fresh-load, and no-box external-spool branches.
-- `M1002 R1` captures `printer.save_variables.variables.z_offset|default(0)` into `_km_apply_print_offset.captured_z_offset`, clears the active runtime Z offset for homing, Z tilt, and KAMP mesh calibration, and leaves the captured value in volatile macro state.
+- `M1002 R1` captures `printer.save_variables.variables.z_offset|default(0)` into `_km_apply_print_offset.captured_z_offset`, reports `Your Z Offset will be set to: x.xxx`, clears the active runtime Z offset for homing, Z tilt, and KAMP mesh calibration, and leaves the captured value in volatile macro state.
 - `M1002 A1` applies `_km_apply_print_offset.captured_z_offset` after `SAVE_CONFIG_QD`; if no value was captured earlier in the session, it falls back to `printer.save_variables.variables.z_offset|default(0)`.
-- `_km_apply_print_offset` reports `Your Z Offset will be set to: x.xxx` immediately before `M1002 A1` applies the captured or fallback Z offset.
 - The retained-filament branch skips `BOX_PRINT_START` when the requested tool maps to the retained slot, `slot_sync` still points at that slot, the slot filament ID and vendor ID still match, and the filament-present sensor proves box filament is still loaded.
 - The retained-filament branch reuses the loaded filament, moves to the chute before waiting, waits for bed/chamber targets as needed at the chute, performs chute-side cleanup, runs `Z_TILT_ADJUST`, and recalibrates KAMP mesh.
 - The QIDI Box fresh-load branch calls vendor `BOX_PRINT_START` with the slicer high purge temperature, runs optimized extrusion and flush, cools to scrape temperature in stages, wipes/scrapes the nozzle, then goes directly to bed/chamber waits, Z tilt, and KAMP mesh.
@@ -121,6 +121,19 @@ Functional changes:
 - Slicer start G-code selects `T[initial_tool]` before the front prime line so prime extrusion is attributed to the initial object filament.
 - Slicer start G-code does not call `SET_INPUT_SHAPER`, so Klipper uses saved `shaper_type_x` / `shaper_type_y` calibration state from `config/printer.cfg` instead of forcing per-print algorithms.
 - The front prime line uses the first-layer nozzle temperature, moves in front of the first-layer object bounds when `first_layer_print_min` leaves front-bed room, falls back to the fixed front-center line when that adaptive path is unavailable, and lifts without a post-prime retract.
+
+## Filament sensor behavior
+
+Source paths:
+- `installer/package.yaml`
+- `installer/klipper/tltg-optimized-macros/filament.cfg`
+- `config/klipper-macros-qd/pause_resume_cancel.cfg`
+
+Functional changes:
+- `TLTG_FILAMENT_SENSOR ENABLE=0` keeps the toolhead switch event and external-spool exhausted status active while suppressing its automatic pause; `ENABLE=1` restores external-spool automatic pausing. The volatile setting resets enabled after a Klipper restart. With `ENABLE=0`, filament-runout warnings remain sensor-event status and must not be acknowledged or acted on from the printer screen.
+- QIDI Box runout always pauses and retains the vendor auto-reload or exhausted-status branch regardless of the `TLTG_FILAMENT_SENSOR` setting.
+- Toolhead sensor runout writes a console message identifying the trip, source mode, and pause decision; a supported insert event writes a console message that the switch is untripped and filament is detected.
+- External-spool `RESUME` bypasses a false toolhead switch only while `TLTG_FILAMENT_SENSOR` automatic pausing is disabled; QIDI Box resume remains vendor-controlled.
 
 ## Filament cutting, flushing, unloading, and end-print behavior
 
