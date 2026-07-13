@@ -73,7 +73,7 @@ Forbidden patterns:
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:127-169`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:183-225`
 
 Direct visible macro calls in branch slice:
 
@@ -116,7 +116,7 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:170-235`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:226-291`
 
 Direct visible macro calls in branch slice:
 
@@ -155,7 +155,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:236-275`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:292-331`
 
 Direct visible macro calls in branch slice:
 

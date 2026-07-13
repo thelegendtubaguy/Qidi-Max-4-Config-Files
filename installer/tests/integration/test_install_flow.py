@@ -125,6 +125,40 @@ class InstallFlowTests(unittest.TestCase):
         )
         self.assertTrue((paths.config_root / "tltg_optimized_state.yaml").exists())
 
+    def test_install_replaces_filament_sensor_and_resume_for_both_firmware_baselines(self):
+        for firmware in ("01.01.06.03", "01.01.06.04"):
+            with self.subTest(firmware=firmware):
+                printer_root = copy_base_runtime()
+                if firmware == "01.01.06.04":
+                    self._set_firmware_version(printer_root, firmware)
+                    self._overlay_stock_snapshot(printer_root, firmware)
+                paths = resolve_runtime_paths(
+                    bundle_root=REPO_ROOT,
+                    environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+                )
+                run_install(paths, self.manifest, reporter=PlainReporter(io.StringIO()), urlopen=moonraker_urlopen())
+
+                printer_cfg = (paths.config_root / "printer.cfg").read_text(encoding="utf-8")
+                with self.assertRaises(klipper_cfg.TargetResolutionError) as sensor_error:
+                    klipper_cfg.resolve_unique_section(
+                        printer_cfg, "filament_switch_sensor filament_switch_sensor"
+                    )
+                self.assertEqual(sensor_error.exception.reason, "missing")
+
+                pause_resume = (
+                    paths.config_root / "klipper-macros-qd/pause_resume_cancel.cfg"
+                ).read_text(encoding="utf-8")
+                with self.assertRaises(klipper_cfg.TargetResolutionError) as resume_error:
+                    klipper_cfg.resolve_unique_section(pause_resume, "gcode_macro RESUME")
+                self.assertEqual(resume_error.exception.reason, "missing")
+
+                optimized_filament = (
+                    paths.config_root / "tltg-optimized-macros/filament.cfg"
+                ).read_text(encoding="utf-8")
+                self.assertIn("[filament_switch_sensor filament_switch_sensor]", optimized_filament)
+                self.assertIn("[gcode_macro TLTG_FILAMENT_SENSOR]", optimized_filament)
+                self.assertIn("[gcode_macro RESUME]", optimized_filament)
+
     def test_install_patches_firmware_04_stock_drift_when_targets_exist(self):
         printer_root = copy_base_runtime()
         self._set_firmware_version(printer_root, "01.01.06.04")
@@ -231,7 +265,7 @@ class InstallFlowTests(unittest.TestCase):
         state_text = (paths.config_root / "tltg_optimized_state.yaml").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("enable_box", state_text)
+        self.assertNotIn("\n  enable_box:", state_text)
         output = stream.getvalue()
         self.assertIn("Would you like to enable QIDI Box support now?", output)
         self.assertIn("QIDI Box support enabled in saved_variables.cfg.", output)

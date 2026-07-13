@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.07.03.2"
+  version: "26.07.13.1"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -27,6 +27,7 @@ package:
     - "26.06.15.1"
     - "26.07.03.1"
     - "26.07.03.2"
+    - "26.07.13.1"
 
 firmware:
   supported:
@@ -348,6 +349,24 @@ patches:
           desired: "PA6-CF"
 
   delete_sections:
+    - id: filament_switch_sensor
+      file: "config/printer.cfg"
+      section: "filament_switch_sensor filament_switch_sensor"
+      variants:
+        - firmwares: ["01.01.06.03"]
+          expected_normalized_sha256: "4466d08166d675b207e2256e4072b1b79ca5b3d83b07a272efc2bef4d41ab4cc"
+        - firmwares: ["01.01.06.04"]
+          expected_normalized_sha256: "82ddb60dd79950a1b0e551295aca9c3c05cd3f4f0ed77ac2888d4faf18c724a8"
+
+    - id: pause_resume_cancel_resume
+      file: "config/klipper-macros-qd/pause_resume_cancel.cfg"
+      section: "gcode_macro RESUME"
+      variants:
+        - firmwares: ["01.01.06.03"]
+          expected_normalized_sha256: "b11be3af49980c38029cfeaf9dcbd4db8bb2e5970f40b2bb7626fe7337a86017"
+        - firmwares: ["01.01.06.04"]
+          expected_normalized_sha256: "b11be3af49980c38029cfeaf9dcbd4db8bb2e5970f40b2bb7626fe7337a86017"
+
     - id: kinematics_homing_override
       file: "config/klipper-macros-qd/kinematics.cfg"
       section: "homing_override"

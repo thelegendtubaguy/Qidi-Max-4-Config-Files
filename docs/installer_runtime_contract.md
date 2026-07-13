@@ -15,6 +15,7 @@ Installer metadata used by the runtime:
 - `installer/package.yaml install.ensure_directories`, `install.managed_tree`, and `install.ensure_lines` define the installer-managed runtime changes under `config/`.
 - `installer/package.yaml patches.set_options[]` defines guarded `file + section + option` runtime value patches.
 - `installer/package.yaml patches.delete_sections[]` defines guarded `file + section` runtime section deletion patches; each variant stores `expected_normalized_sha256` for the normalized section text that must be present before deletion.
+- Guarded section replacements move `[filament_switch_sensor filament_switch_sensor]` from `config/printer.cfg` and `[gcode_macro RESUME]` from `config/klipper-macros-qd/pause_resume_cancel.cfg` into `config/tltg-optimized-macros/filament.cfg`.
 - `installer/package.yaml install.managed_tree.required_files[]` lists required files under `installer/klipper/tltg-optimized-macros/`; install preflight fails when the managed-tree source is missing, empty, symlinked, or missing any required file.
 - `installer/package.yaml install.managed_tree` defines the managed-tree file set validated during install postflight.
 - Install postflight compares each runtime `config/tltg-optimized-macros/*` file SHA-256 against the bundle source SHA-256 before writing `config/tltg_optimized_state.yaml`.
