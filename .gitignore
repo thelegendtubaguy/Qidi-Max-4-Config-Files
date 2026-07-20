@@ -7,3 +7,4 @@ tmp/
 tltg-local/
 build/
 dist/
+.pi-subagents/

@@ -81,6 +81,22 @@ SCREWS_TILT_CALCULATE
 
 `TLTG_CORNER_BED_SCREW_CHECK` homes, runs `Z_TILT_ADJUST`, and runs `SCREWS_TILT_CALCULATE`.
 
+### Filament runout sensor
+
+```gcode
+TLTG_FILAMENT_SENSOR ENABLE=0
+TLTG_FILAMENT_SENSOR ENABLE=1
+```
+
+`ENABLE=0` keeps toolhead filament-sensor events and external-spool runout status reporting active while suppressing automatic external-spool pausing. `ENABLE=1` restores automatic external-spool pausing. The setting resets enabled after a Klipper restart. QIDI Box runout handling remains enabled in both modes.
+
+> [!WARNING]
+> With `ENABLE=0`, ignore filament-runout warnings on the printer screen. Do not interact with those warnings; the print continues and the warning remains only as sensor-event status.
+
+The console identifies the toolhead sensor trip and the active pause policy.
+
+![Filament sensor console output](docs/images/tltg-filament-sensor-console.png)
+
 ### Slicer Machine GCode Updates
 
 > [!TIP]
