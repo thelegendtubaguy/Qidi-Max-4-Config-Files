@@ -102,6 +102,7 @@ Source paths:
 - `qidistudio_gcode/start.gcode`
 - `installer/klipper/tltg-optimized-macros/start_end.cfg`
 - `installer/klipper/tltg-optimized-macros/filament.cfg`
+- `installer/klipper/tltg-optimized-macros/heaters.cfg`
 - `installer/klipper/tltg-optimized-macros/bed_mesh.cfg`
 - `installer/klipper/tltg-optimized-macros/offset.cfg`
 
@@ -116,6 +117,7 @@ Functional changes:
 - The QIDI Box fresh-load branch calls vendor `BOX_PRINT_START` with the slicer high purge temperature, runs optimized extrusion and flush, cools to scrape temperature in stages, wipes/scrapes the nozzle, then goes directly to bed/chamber waits, Z tilt, and KAMP mesh.
 - The QIDI Box fresh-load branch does not re-home Z between purge cleanup and the rear-bed scrape motion.
 - The no-box external-spool branch skips `BOX_PRINT_START`, skips `OPTIMIZED_EXTRUSION_AND_FLUSH`, skips rear extrusion purge, wipes/scrapes the nozzle without extrusion, then runs bed/chamber waits, Z tilt, and KAMP mesh.
+- `_OPTIMIZED_REPORT_BED_TEMP` reports the live bed target and sensor temperature immediately before `Z_TILT_ADJUST` on every optimized start branch.
 - `OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE` heats only to the scrape target, waits for the hotend to be no hotter than the scrape window, runs chute cleanup only when `box_extras` exists, performs the rear-bed scrape pattern, and contains no `G1 E...` extrusion move.
 - `OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE` no longer calls `_OPTIMIZED_HOME_Z_FROM_SAFE_POINT`; Z homing for mesh happens later through `_OPTIMIZED_G29_HOME_Z_OR_FULL`.
 - Slicer start G-code selects `T[initial_tool]` before the front prime line so prime extrusion is attributed to the initial object filament.

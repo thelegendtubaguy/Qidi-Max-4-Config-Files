@@ -73,7 +73,7 @@ Forbidden patterns:
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:183-225`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:183-226`
 
 Direct visible macro calls in branch slice:
 
@@ -85,6 +85,7 @@ Direct visible macro calls in branch slice:
 - `OPTIMIZED_WAIT_CHAMBER`
 - `OPTIMIZED_WAIT_HOTEND`
 - `M106`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `_OPTIMIZED_G29_HOME_Z_OR_FULL`
 - `BED_MESH_CALIBRATE`
 - `M1002`
@@ -99,6 +100,7 @@ Ordered invariants:
 - `OPTIMIZED_WAIT_HOTEND S={reuse_nozzle_target} STATUS=clear_nozzle`
 - `CLEAR_OOZE`
 - `CLEAR_FLUSH`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
 - `BED_MESH_CALIBRATE PROFILE=kamp`
@@ -116,7 +118,7 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:226-291`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:227-293`
 
 Direct visible macro calls in branch slice:
 
@@ -126,6 +128,7 @@ Direct visible macro calls in branch slice:
 - `M106`
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `_OPTIMIZED_G29_HOME_Z_OR_FULL`
 - `BED_MESH_CALIBRATE`
 - `M1002`
@@ -140,6 +143,7 @@ Ordered invariants:
 - `G1 Z-0.2 F480`
 - `OPTIMIZED_WAIT_BED S={bed_target} STATUS=wait_bed_temp`
 - `G1 X15 Y202.5 F36000`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
 - `BED_MESH_CALIBRATE PROFILE=kamp`
@@ -155,7 +159,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:292-331`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-334`
 
 Direct visible macro calls in branch slice:
 
@@ -165,6 +169,7 @@ Direct visible macro calls in branch slice:
 - `M106`
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `_OPTIMIZED_G29_HOME_Z_OR_FULL`
 - `BED_MESH_CALIBRATE`
 - `M1002`
@@ -175,6 +180,7 @@ Ordered invariants:
 - `M118 Starting without QIDI Box filament prep`
 - `OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE TARGET={scrape_target}`
 - `OPTIMIZED_WAIT_BED S={bed_target} STATUS=wait_bed_temp`
+- `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
 - `BED_MESH_CALIBRATE PROFILE=kamp`
