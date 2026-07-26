@@ -80,6 +80,11 @@ class TransitionWindow:
     rise: float
     fall: float
     end: float
+    rise_end: object = None
+    fall_end: object = None
+    acceleration: float = 0.0
+    low_velocity: float = 0.0
+    high_velocity: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -126,12 +131,21 @@ class CycleMetrics:
     undershoot: float
     settling_error: float
     saturated: bool = False
+    tracking_error: float = 0.0
+    fall_signed_area: float = 0.0
+    recovery_error: float = 0.0
+    plateau_slope: float = 0.0
+    acceleration: float = 0.0
+    low_velocity: float = 0.0
+    high_velocity: float = 0.0
+    polarity: int = 1
 
 
 @dataclass(frozen=True)
 class SelectionResult:
     value: object = None
     reason: object = None
+    profile_values: tuple = ()
 
     @property
     def successful(self):
@@ -472,34 +486,101 @@ def assess_capture_quality(
 
 
 def analyze_cycle(samples, window):
-    if not (window.start < window.rise < window.fall < window.end):
+    _validate_transition_excitation(window)
+    rise_end = window.rise if window.rise_end is None else window.rise_end
+    fall_end = window.fall if window.fall_end is None else window.fall_end
+    if not (
+        window.start < window.rise <= rise_end < window.fall <= fall_end < window.end
+    ):
         raise CalibrationError("transition window is not ordered")
-    before = _values(samples, window.start, window.rise)
-    high = _values(samples, window.rise, window.fall)
-    after = _values(samples, window.fall, window.end)
+    ordered_samples = sorted(
+        (
+            sample
+            for sample in samples
+            if window.start <= sample.time < window.end
+        ),
+        key=lambda sample: sample.time,
+    )
+    before = _values(ordered_samples, window.start, window.rise)
+    high = _values(ordered_samples, rise_end, window.fall)
+    after = _values(ordered_samples, window.fall, window.end)
     if min(len(before), len(high), len(after)) < 4:
         raise CalibrationError("insufficient cycle coverage")
 
     before_level = statistics.median(before[len(before) // 2 :])
     high_level = statistics.median(high[len(high) // 2 :])
-    after_level = statistics.median(after[len(after) // 2 :])
     signed_amplitude = high_level - before_level
     amplitude = abs(signed_amplitude)
     if amplitude == 0:
         raise CalibrationError("force response has zero amplitude")
-    polarity = 1.0 if signed_amplitude > 0 else -1.0
-    normalized_high = [(value - before_level) * polarity / amplitude for value in high]
-    normalized_after = [(value - after_level) * polarity / amplitude for value in after]
+    polarity = 1 if signed_amplitude > 0 else -1
+    normalized = [
+        (
+            sample.time,
+            (sample.counts - before_level) * polarity / amplitude,
+            _expected_flow_fraction(sample.time, window, rise_end, fall_end),
+        )
+        for sample in ordered_samples
+    ]
+    transition_residuals = [
+        (sample_time, observed - expected)
+        for sample_time, observed, expected in normalized
+        if window.rise <= sample_time < fall_end
+    ]
+    fall_residuals = [
+        (sample_time, observed - expected)
+        for sample_time, observed, expected in normalized
+        if window.fall <= sample_time < window.end
+    ]
+    post_decel_residuals = [
+        (sample_time, observed - expected)
+        for sample_time, observed, expected in normalized
+        if fall_end <= sample_time < window.end
+    ]
+    if min(
+        len(transition_residuals),
+        len(fall_residuals),
+        len(post_decel_residuals),
+    ) < 4:
+        raise CalibrationError("insufficient cycle coverage")
 
-    rise_delay = _crossing_delay(samples, window.rise, window.fall, before_level, high_level, 0.9)
-    fall_delay = _crossing_delay(samples, window.fall, window.end, high_level, after_level, 0.1)
+    after_level = statistics.median(after[len(after) // 2 :])
+    rise_delay = _crossing_delay(
+        ordered_samples,
+        window.rise,
+        window.fall,
+        before_level,
+        high_level,
+        0.9,
+    )
+    fall_delay = _crossing_delay(
+        ordered_samples,
+        window.fall,
+        window.end,
+        high_level,
+        after_level,
+        0.1,
+    )
     noise = _median_absolute_deviation(before) / amplitude
-    overshoot = max(0.0, max(normalized_high) - 1.0)
-    undershoot = max(0.0, -min(normalized_after))
+    overshoot = max(0.0, max(value for unused_time, value in transition_residuals))
+    undershoot = max(0.0, -min(value for unused_time, value in fall_residuals))
+    tracking_error = _time_average_absolute(transition_residuals)
+    fall_signed_area = _time_integral(post_decel_residuals)
+    recovery_error = _time_average_absolute(post_decel_residuals)
+    plateau = [
+        (sample_time, observed)
+        for sample_time, observed, unused_expected in normalized
+        if rise_end <= sample_time < window.fall
+    ]
+    plateau_slope = _linear_slope(plateau[len(plateau) // 2 :])
     settling = statistics.fmean(
-        abs(value - 1.0) for value in normalized_high[len(normalized_high) // 2 :]
-    ) + statistics.fmean(abs(value) for value in normalized_after[len(normalized_after) // 2 :])
-    saturated = any(sample.saturated for sample in samples if window.start <= sample.time <= window.end)
+        (
+            tracking_error,
+            recovery_error,
+            abs(plateau_slope) * max(window.fall - rise_end, 0.0),
+        )
+    )
+    saturated = any(sample.saturated for sample in ordered_samples)
     return CycleMetrics(
         k=window.k,
         amplitude=amplitude,
@@ -510,16 +591,27 @@ def analyze_cycle(samples, window):
         undershoot=undershoot,
         settling_error=settling,
         saturated=saturated,
+        tracking_error=tracking_error,
+        fall_signed_area=fall_signed_area,
+        recovery_error=recovery_error,
+        plateau_slope=plateau_slope,
+        acceleration=window.acceleration,
+        low_velocity=window.low_velocity,
+        high_velocity=window.high_velocity,
+        polarity=polarity,
     )
 
 
 def select_pa_value(
     metrics,
     quality=None,
-    undershoot_threshold=0.05,
     min_amplitude=1.0,
     max_noise=0.20,
     max_repeatability=0.04,
+    max_area_repeatability=0.02,
+    area_deadband=0.005,
+    min_objective_separation=0.05,
+    min_acceleration_profiles=2,
     min_coverage=0.95,
     max_gap=0.005,
     max_timing_residual=0.003,
@@ -531,45 +623,328 @@ def select_pa_value(
             return SelectionResult(reason="SAMPLE_GAP")
         if quality.timing_residual > max_timing_residual:
             return SelectionResult(reason="TIMING_MISALIGNMENT")
+    metrics = tuple(metrics)
     if not metrics:
         return SelectionResult(reason="NO_DATA")
     if any(item.saturated for item in metrics):
         return SelectionResult(reason="SATURATED")
     if any(item.amplitude < min_amplitude or item.noise > max_noise for item in metrics):
         return SelectionResult(reason="WEAK_OR_NOISY_SIGNAL")
+    if any(not _valid_cycle_metrics(item) for item in metrics):
+        return SelectionResult(reason="INVALID_ANALYSIS_DATA")
+    if len({item.polarity for item in metrics}) != 1:
+        return SelectionResult(reason="INCONSISTENT_POLARITY")
 
-    grouped = {}
+    profiles = {}
     for item in metrics:
-        grouped.setdefault(round(item.k, 9), []).append(item)
-    ordered = sorted(grouped)
+        profile = (
+            round(item.acceleration, 9),
+            round(item.low_velocity, 9),
+            round(item.high_velocity, 9),
+        )
+        profiles.setdefault(profile, {}).setdefault(round(item.k, 9), []).append(
+            item
+        )
+    accelerations = {profile[0] for profile in profiles}
+    flow_schedules = {profile[1:] for profile in profiles}
+    if len(accelerations) < min_acceleration_profiles:
+        return SelectionResult(reason="INCOMPLETE_ACCELERATION_PROFILES")
+    if len(flow_schedules) != 1:
+        return SelectionResult(reason="INCOMPATIBLE_ACCELERATION_PROFILES")
+    k_sets = {tuple(sorted(grouped)) for grouped in profiles.values()}
+    if len(k_sets) != 1:
+        return SelectionResult(reason="INCOMPLETE_PROFILE_COVERAGE")
+    ordered = next(iter(k_sets))
     if len(ordered) < 3:
         return SelectionResult(reason="INSUFFICIENT_K_RANGE")
 
-    medians = []
-    for k in ordered:
-        values = [item.undershoot for item in grouped[k]]
-        if len(values) < 2:
-            return SelectionResult(reason="INSUFFICIENT_CORROBORATION")
-        if max(values) - min(values) > max_repeatability:
-            return SelectionResult(reason="INCONSISTENT_CYCLES")
-        medians.append(statistics.median(values))
+    profile_values = []
+    for profile in sorted(profiles):
+        grouped = profiles[profile]
+        aggregated = []
+        for k in ordered:
+            cycles = grouped[k]
+            if len(cycles) < 2:
+                return SelectionResult(reason="INSUFFICIENT_CORROBORATION")
+            if not _cycles_are_repeatable(
+                cycles, max_repeatability, max_area_repeatability
+            ):
+                return SelectionResult(reason="INCONSISTENT_CYCLES")
+            aggregated.append(_median_cycle_metrics(cycles))
+        result = _select_profile_candidate(
+            aggregated,
+            area_deadband=area_deadband,
+            min_objective_separation=min_objective_separation,
+            max_area_repeatability=max_area_repeatability,
+        )
+        if not result.successful:
+            return result
+        profile_values.append(result.value)
+    if len(set(profile_values)) != 1:
+        return SelectionResult(
+            reason="ACCELERATION_CANDIDATE_DISAGREEMENT",
+            profile_values=tuple(profile_values),
+        )
+    return SelectionResult(
+        value=profile_values[0],
+        profile_values=tuple(profile_values),
+    )
+
+
+def _validate_transition_excitation(window):
+    has_shape = window.rise_end is not None or window.fall_end is not None
+    if not has_shape:
+        return
+    if (
+        window.rise_end is None
+        or window.fall_end is None
+        or not all(
+            _finite_number(value)
+            for value in (
+                window.rise_end,
+                window.fall_end,
+                window.acceleration,
+                window.low_velocity,
+                window.high_velocity,
+            )
+        )
+        or window.acceleration <= 0.0
+        or window.high_velocity <= window.low_velocity
+    ):
+        raise CalibrationError("invalid transition excitation")
+    expected_ramp = (
+        window.high_velocity - window.low_velocity
+    ) / window.acceleration
+    if (
+        abs((window.rise_end - window.rise) - expected_ramp) > 1.0e-9
+        or abs((window.fall_end - window.fall) - expected_ramp) > 1.0e-9
+    ):
+        raise CalibrationError("transition acceleration does not match ramp timing")
+
+
+def _expected_flow_fraction(sample_time, window, rise_end, fall_end):
+    if window.rise_end is None or window.fall_end is None:
+        return 1.0 if window.rise <= sample_time < window.fall else 0.0
+    if sample_time < window.rise:
+        return 0.0
+    if sample_time < rise_end:
+        return (sample_time - window.rise) / (rise_end - window.rise)
+    if sample_time < window.fall:
+        return 1.0
+    if sample_time < fall_end:
+        return 1.0 - (sample_time - window.fall) / (fall_end - window.fall)
+    return 0.0
+
+
+def _time_integral(values):
+    if len(values) < 2:
+        raise CalibrationError("insufficient integration coverage")
+    return sum(
+        (previous_value + current_value)
+        * 0.5
+        * (current_time - previous_time)
+        for (previous_time, previous_value), (current_time, current_value) in zip(
+            values, values[1:]
+        )
+    )
+
+
+def _time_average_absolute(values):
+    duration = values[-1][0] - values[0][0]
+    if duration <= 0.0:
+        raise CalibrationError("invalid integration duration")
+    absolute = [(sample_time, abs(value)) for sample_time, value in values]
+    return _time_integral(absolute) / duration
+
+
+def _linear_slope(values):
+    if len(values) < 2:
+        raise CalibrationError("insufficient slope coverage")
+    center_time = statistics.fmean(item[0] for item in values)
+    center_value = statistics.fmean(item[1] for item in values)
+    denominator = sum((sample_time - center_time) ** 2 for sample_time, unused in values)
+    if denominator <= 0.0:
+        raise CalibrationError("invalid slope coverage")
+    return sum(
+        (sample_time - center_time) * (value - center_value)
+        for sample_time, value in values
+    ) / denominator
+
+
+def _valid_cycle_metrics(item):
+    numeric = (
+        item.k,
+        item.amplitude,
+        item.noise,
+        item.rise_delay,
+        item.fall_delay,
+        item.overshoot,
+        item.undershoot,
+        item.settling_error,
+        item.tracking_error,
+        item.fall_signed_area,
+        item.recovery_error,
+        item.plateau_slope,
+        item.acceleration,
+        item.low_velocity,
+        item.high_velocity,
+    )
+    return (
+        all(_finite_number(value) for value in numeric)
+        and item.k >= 0.0
+        and item.amplitude > 0.0
+        and item.noise >= 0.0
+        and item.rise_delay >= 0.0
+        and item.fall_delay >= 0.0
+        and item.overshoot >= 0.0
+        and item.undershoot >= 0.0
+        and item.settling_error >= 0.0
+        and item.tracking_error >= 0.0
+        and item.recovery_error >= 0.0
+        and item.acceleration > 0.0
+        and item.low_velocity > 0.0
+        and item.high_velocity > item.low_velocity
+        and item.polarity in (-1, 1)
+    )
+
+
+def _cycles_are_repeatable(cycles, max_repeatability, max_area_repeatability):
+    normalized_fields = (
+        "rise_delay",
+        "fall_delay",
+        "overshoot",
+        "undershoot",
+        "settling_error",
+        "tracking_error",
+        "recovery_error",
+        "plateau_slope",
+    )
     if any(
-        current + max_repeatability < previous
-        for previous, current in zip(medians, medians[1:])
+        max(getattr(item, field) for item in cycles)
+        - min(getattr(item, field) for item in cycles)
+        > max_repeatability
+        for field in normalized_fields
+    ):
+        return False
+    areas = [item.fall_signed_area for item in cycles]
+    return max(areas) - min(areas) <= max_area_repeatability
+
+
+def _median_cycle_metrics(cycles):
+    def median(field):
+        return statistics.median(getattr(item, field) for item in cycles)
+
+    return CycleMetrics(
+        k=cycles[0].k,
+        amplitude=median("amplitude"),
+        noise=median("noise"),
+        rise_delay=median("rise_delay"),
+        fall_delay=median("fall_delay"),
+        overshoot=median("overshoot"),
+        undershoot=median("undershoot"),
+        settling_error=median("settling_error"),
+        saturated=False,
+        tracking_error=median("tracking_error"),
+        fall_signed_area=median("fall_signed_area"),
+        recovery_error=median("recovery_error"),
+        plateau_slope=median("plateau_slope"),
+        acceleration=cycles[0].acceleration,
+        low_velocity=cycles[0].low_velocity,
+        high_velocity=cycles[0].high_velocity,
+        polarity=cycles[0].polarity,
+    )
+
+
+def _select_profile_candidate(
+    metrics,
+    *,
+    area_deadband,
+    min_objective_separation,
+    max_area_repeatability,
+):
+    ordered = sorted(metrics, key=lambda item: item.k)
+    areas = [item.fall_signed_area for item in ordered]
+    if any(
+        current > previous + max_area_repeatability
+        for previous, current in zip(areas, areas[1:])
     ):
         return SelectionResult(reason="NON_MONOTONIC_RESPONSE")
+    positive_indices = [
+        index for index, area in enumerate(areas) if area > area_deadband
+    ]
+    negative_indices = [
+        index for index, area in enumerate(areas) if area < -area_deadband
+    ]
 
-    excessive_index = next(
-        (index for index, value in enumerate(medians) if value >= undershoot_threshold),
-        None,
+    costs = _composite_costs(ordered)
+    candidate_index = min(range(len(ordered)), key=lambda index: costs[index])
+    cost_span = max(costs) - min(costs)
+    second_cost = sorted(costs)[1]
+    if (
+        cost_span <= 1.0e-12
+        or (second_cost - costs[candidate_index]) / cost_span
+        < min_objective_separation
+    ):
+        return SelectionResult(reason="COMPOSITE_OBJECTIVE_AMBIGUOUS")
+    if candidate_index in (0, len(ordered) - 1):
+        return SelectionResult(reason="K_RANGE_NOT_BRACKETED")
+    if (
+        not positive_indices
+        or not negative_indices
+        or max(positive_indices) >= min(negative_indices)
+    ):
+        return SelectionResult(reason="RECOVERY_EVIDENCE_INCONCLUSIVE")
+
+    lower_index = max(positive_indices)
+    upper_index = min(negative_indices)
+    lower = ordered[lower_index]
+    upper = ordered[upper_index]
+    zero_fraction = lower.fall_signed_area / (
+        lower.fall_signed_area - upper.fall_signed_area
     )
-    if excessive_index is None or excessive_index <= 1 or excessive_index == len(ordered) - 1:
-        return SelectionResult(reason="K_RANGE_NOT_BRACKETED")
-    candidate_index = excessive_index - 1
-    candidate = ordered[candidate_index]
-    if candidate in (ordered[0], ordered[-1]):
-        return SelectionResult(reason="K_RANGE_NOT_BRACKETED")
-    return SelectionResult(value=candidate)
+    zero_estimate = lower.k + (upper.k - lower.k) * zero_fraction
+    steps = [
+        current.k - previous.k for previous, current in zip(ordered, ordered[1:])
+    ]
+    if min(steps) <= 0.0 or abs(ordered[candidate_index].k - zero_estimate) > max(steps):
+        return SelectionResult(reason="RECOVERY_EVIDENCE_INCONCLUSIVE")
+    if areas[candidate_index] < -area_deadband:
+        return SelectionResult(reason="RECOVERY_EVIDENCE_INCONCLUSIVE")
+    return SelectionResult(value=ordered[candidate_index].k)
+
+
+def _composite_costs(metrics):
+    tracking_fields = ("tracking_error", "rise_delay", "fall_delay")
+    excessive_fields = ("overshoot", "undershoot")
+    recovery_fields = ("settling_error", "recovery_error", "plateau_slope")
+    scales = {
+        field: _robust_scale(abs(getattr(item, field)) for item in metrics)
+        for field in tracking_fields + excessive_fields + recovery_fields
+    }
+
+    def component(item, fields):
+        return statistics.fmean(
+            abs(getattr(item, field)) / scales[field] for field in fields
+        )
+
+    return [
+        0.45 * component(item, tracking_fields)
+        + 0.35 * component(item, excessive_fields)
+        + 0.20 * component(item, recovery_fields)
+        for item in metrics
+    ]
+
+
+def _robust_scale(values):
+    ordered = sorted(values)
+    if not ordered:
+        return 1.0
+    rank = 0.9 * (len(ordered) - 1)
+    lower = int(math.floor(rank))
+    upper = int(math.ceil(rank))
+    fraction = rank - lower
+    scale = ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+    return max(scale, 1.0e-12)
 
 
 def format_result(value, temperature, nozzle):
@@ -873,8 +1248,13 @@ def build_stationary_pulse_plan(print_time, start_e, k, plan):
             k=k,
             start=print_time,
             rise=transition_time,
+            rise_end=transition_time + transition.accel_time,
             fall=transition_time + transition.accel_time + transition.cruise_time,
+            fall_end=lead_out_time,
             end=end_time,
+            acceleration=plan.acceleration,
+            low_velocity=plan.low_velocity,
+            high_velocity=plan.high_velocity,
         ),
         end_time=end_time,
         end_e=end_e,
@@ -1118,6 +1498,7 @@ class QidiCS1237Adapter:
             raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE") from exc
         if not callable(getattr(read_command, "send", None)):
             raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        self.printer = printer
         self.sensor = sensor
         self.read_command = read_command
         self.active = False
@@ -1156,6 +1537,7 @@ class QidiCS1237Adapter:
         issues = []
         rejected_messages = []
         operation_errors = []
+        response_identities = set()
 
         def reject_response(params, issue):
             issues.append(issue)
@@ -1169,9 +1551,14 @@ class QidiCS1237Adapter:
             if issue is not None:
                 reject_response(params, issue)
                 return
+            identity = (params.get("#sent_time"), bytes(params.get("data")))
+            if identity in response_identities:
+                reject_response(params, "DUPLICATE_RESPONSE_IDENTITY")
+                return
             if len(messages) >= request_count:
                 reject_response(params, "RESPONSE_OVERFLOW")
                 return
+            response_identities.add(identity)
             messages.append(dict(params))
 
         event_start = reactor.monotonic()
@@ -1185,6 +1572,7 @@ class QidiCS1237Adapter:
         registered = False
         operation_error = None
         cleanup_error = None
+        post_state_error = None
         try:
             self.sensor.mcu.register_response(
                 handle_sample, self.RESPONSE_NAME, self.sensor.oid
@@ -1226,6 +1614,27 @@ class QidiCS1237Adapter:
                 self.active = False
                 _ACTIVE_SENSOR_IDS.discard(sensor_id)
 
+        handler_released = handlers.get(response_key) is None
+        if handler_released:
+            try:
+                self.validate_configuration()
+            except CalibrationError as exc:
+                post_state_error = CalibrationError("STOCK_SENSOR_STATE_CHANGED")
+                issues.append("STOCK_SENSOR_STATE_CHANGED")
+                operation_errors.append(type(exc).__name__)
+        else:
+            issues.append("STOCK_SENSOR_STATE_UNVERIFIED")
+            if cleanup_error is None:
+                post_state_error = CalibrationError("SENSOR_OWNERSHIP_UNSAFE")
+                operation_errors.append(type(post_state_error).__name__)
+        if post_state_error is not None or not handler_released:
+            invoke_shutdown = getattr(self.printer, "invoke_shutdown", None)
+            if callable(invoke_shutdown):
+                invoke_shutdown(
+                    "PA direct-read capture did not restore verified stock "
+                    "sensor state; FIRMWARE_RESTART required"
+                )
+
         if len(messages) != request_count:
             issues.append("RESPONSE_COUNT_MISMATCH")
         capture = DirectReadCapture(
@@ -1236,6 +1645,10 @@ class QidiCS1237Adapter:
             rejected_messages=tuple(rejected_messages),
             operation_errors=tuple(operation_errors),
         )
+        if post_state_error is not None:
+            raise CaptureOperationError(
+                _calibration_reason(post_state_error), capture
+            ) from post_state_error
         if cleanup_error is not None:
             raise CaptureOperationError(
                 "SENSOR_HANDLER_CLEANUP_FAILED", capture
@@ -1262,16 +1675,22 @@ class TLTGPressureAdvance:
     def cmd_calibrate(self, gcmd):
         temperature = gcmd.get_float("TEMP", None)
         nozzle = gcmd.get_float("NOZZLE", None)
-        validate_inputs(temperature, nozzle)
+        try:
+            validate_inputs(temperature, nozzle)
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         if not CALIBRATION_ENABLED:
             raise gcmd.error("PA_CALIBRATION_UNVALIDATED")
         reactor = self.printer.get_reactor()
-        validate_calibration_preflight(
-            self.printer,
-            reactor.monotonic(),
-            temperature,
-            nozzle,
-        )
+        try:
+            validate_calibration_preflight(
+                self.printer,
+                reactor.monotonic(),
+                temperature,
+                nozzle,
+            )
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         raise gcmd.error("PA_CALIBRATION_NOT_IMPLEMENTED")
 
     def cmd_capture(self, gcmd):
@@ -1284,16 +1703,28 @@ class TLTGPressureAdvance:
             _require_idle_print_state(self.printer, reactor.monotonic())
         except CalibrationError as exc:
             raise gcmd.error("PA_CAPTURE_REQUIRES_IDLE_PRINTER") from exc
-        adapter = QidiCS1237Adapter(self.printer)
+        try:
+            adapter = QidiCS1237Adapter(self.printer)
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         toolhead = self.printer.lookup_object("toolhead")
-        start_marker = _toolhead_print_time(toolhead, reactor.monotonic())
+        try:
+            start_marker = _toolhead_print_time(toolhead, reactor.monotonic())
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         capture_error = None
         try:
             capture = adapter.capture(reactor, duration, rate)
         except CaptureOperationError as exc:
             capture = exc.capture
             capture_error = exc
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         path = "/tmp/tltg_pa_capture_%d.json" % int(time.time())
+        try:
+            end_marker = _toolhead_print_time(toolhead, reactor.monotonic())
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
         document = {
             "adc_sample_rate": SAMPLE_RATE,
             "requested_rate": rate,
@@ -1307,7 +1738,7 @@ class TLTGPressureAdvance:
             "duration": duration,
             "motion_markers": {
                 "start": start_marker,
-                "end": _toolhead_print_time(toolhead, reactor.monotonic()),
+                "end": end_marker,
             },
             "messages": [_json_message(item) for item in capture.messages],
         }

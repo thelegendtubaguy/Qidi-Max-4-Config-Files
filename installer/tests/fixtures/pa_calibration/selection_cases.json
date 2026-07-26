@@ -1,64 +1,41 @@
 [
   {
-    "name": "insufficient-to-excessive",
-    "expected_value": 0.03,
-    "responses": [
-      [0.00, 0.00, 0.00],
-      [0.01, 0.01, 0.01],
-      [0.02, 0.02, 0.02],
-      [0.03, 0.04, 0.04],
-      [0.04, 0.08, 0.08],
-      [0.05, 0.12, 0.12]
-    ]
+    "name": "two-acceleration-optimum",
+    "expected_value": 0.02
   },
   {
-    "name": "range-not-bracketed",
-    "expected_reason": "K_RANGE_NOT_BRACKETED",
-    "responses": [
-      [0.00, 0.00, 0.00],
-      [0.01, 0.01, 0.01],
-      [0.02, 0.02, 0.02],
-      [0.03, 0.03, 0.03]
-    ]
+    "name": "acceleration-dependent-result",
+    "profile_optimums": {"10.0": 0.02, "20.0": 0.024},
+    "expected_reason": "ACCELERATION_CANDIDATE_DISAGREEMENT"
   },
   {
-    "name": "boundary-transition",
-    "expected_reason": "K_RANGE_NOT_BRACKETED",
-    "responses": [
-      [0.00, 0.06, 0.06],
-      [0.01, 0.08, 0.08],
-      [0.02, 0.10, 0.10],
-      [0.03, 0.12, 0.12]
-    ]
+    "name": "range-boundary",
+    "profile_optimums": {"10.0": 0.012, "20.0": 0.012},
+    "expected_reason": "K_RANGE_NOT_BRACKETED"
+  },
+  {
+    "name": "recovery-not-bracketed",
+    "recovery_bias": 0.2,
+    "expected_reason": "RECOVERY_EVIDENCE_INCONCLUSIVE"
+  },
+  {
+    "name": "ambiguous-objective",
+    "ambiguous": true,
+    "expected_reason": "COMPOSITE_OBJECTIVE_AMBIGUOUS"
   },
   {
     "name": "inconsistent-cycles",
-    "expected_reason": "INCONSISTENT_CYCLES",
-    "responses": [
-      [0.00, 0.00, 0.00],
-      [0.01, 0.01, 0.01],
-      [0.02, 0.01, 0.08],
-      [0.03, 0.08, 0.08]
-    ]
+    "inconsistent": true,
+    "expected_reason": "INCONSISTENT_CYCLES"
   },
   {
     "name": "noisy-signal",
     "noise": 0.25,
-    "expected_reason": "WEAK_OR_NOISY_SIGNAL",
-    "responses": [
-      [0.00, 0.00, 0.00],
-      [0.01, 0.01, 0.01],
-      [0.02, 0.02, 0.02]
-    ]
+    "expected_reason": "WEAK_OR_NOISY_SIGNAL"
   },
   {
     "name": "saturated-signal",
     "saturated": true,
-    "expected_reason": "SATURATED",
-    "responses": [
-      [0.00, 0.00, 0.00],
-      [0.01, 0.01, 0.01],
-      [0.02, 0.08, 0.08]
-    ]
+    "expected_reason": "SATURATED"
   }
 ]

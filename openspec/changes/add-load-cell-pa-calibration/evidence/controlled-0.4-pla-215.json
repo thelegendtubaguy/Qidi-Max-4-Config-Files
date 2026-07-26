@@ -10,6 +10,19 @@
     "printer_state": "standby",
     "production_package_installed_for_entry_checks": "26.07.26.2"
   },
+  "printed_reference": {
+    "source": "operator-reported conventional calibration",
+    "pressure_advance": 0.02,
+    "operator_reasonable_relative_difference": [
+      0.1,
+      0.2
+    ],
+    "provisional_comparison_window": [
+      0.016,
+      0.024
+    ],
+    "qualification": "Reference only; no load-cell candidate was produced and no acceptance threshold is validated."
+  },
   "safety": {
     "full_homing_before_heating": true,
     "absolute_z_before_trash_park_mm": 200,
@@ -563,6 +576,62 @@
       "failure": null
     }
   ],
+  "two_acceleration_followup": {
+    "status": "aborted_after_first_pulse",
+    "production_package": "26.07.26.4",
+    "planned_k_values": [
+      0.012,
+      0.016,
+      0.02,
+      0.024,
+      0.028
+    ],
+    "planned_acceleration_filament_mm_s2": [
+      10.0,
+      20.0
+    ],
+    "planned_repeats_per_k_and_acceleration": 2,
+    "capture_rate_hz": 250,
+    "completed_pulses": 1,
+    "completed_pulse": {
+      "k": 0.012,
+      "acceleration_filament_mm_s2": 10.0,
+      "requested_responses": 351,
+      "received_responses": 351,
+      "identical_sent_time_and_payload_pairs": 1,
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03
+    },
+    "post_capture_sensor_check": {
+      "homing": 0,
+      "expected_config": 60,
+      "observed_config": 190,
+      "result": "unsafe_stock_sensor_state"
+    },
+    "failure_behavior": {
+      "temporary_harness_error_escaped_as_internal_command_error": true,
+      "klipper_entered_shutdown": true,
+      "firmware_restart_completed": true,
+      "final_clear_ooze_and_clear_flush_completed": true,
+      "post_restart_full_g28_completed": true,
+      "heater_target_after_recovery_celsius": 0,
+      "temporary_hardware_spike_module_removed": true,
+      "qidi_box_source_preserved": true
+    },
+    "qualification": "The two-acceleration sweep was stopped. Response cardinality alone is not trustworthy when two accepted callbacks share the same sent time and payload, and direct-read acquisition is unsafe unless post-capture stock configuration remains exactly 60."
+  },
   "runtime_checks": {
     "toolhead_xyz_changed_during_measured_pulse": false,
     "pressure_advance_and_smooth_time_restored_after_each_pulse": true,
@@ -580,6 +649,8 @@
     "The single 250 Hz under-load capture returned every requested response, but one cycle is insufficient to validate a production rate.",
     "Near-zero and large isolated excursions persisted during heated and extrusion captures.",
     "Repeated K responses were not repeatable enough to classify a candidate; no PA value was reported.",
+    "A follow-up 250 Hz pulse returned 351 responses for 351 requests, but two callbacks shared the same sent time and payload.",
+    "The stock CS1237 configuration read 190 instead of 60 after the follow-up pulse, so the planned two-acceleration sweep was aborted after one pulse.",
     "Receive timing and these exploratory outlier windows do not establish ADC conversion freshness or a hardware-safe invalid-read classifier."
   ],
   "analysis_note": "exploratory_outlier_count and exploratory_window_medians use a non-production neighbor heuristic only to summarize signal shape; they are not accepted quality gates."

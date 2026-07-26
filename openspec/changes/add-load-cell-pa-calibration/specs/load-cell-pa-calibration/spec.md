@@ -80,8 +80,13 @@ The system SHALL access the stock `probe_air` CS1237 acquisition path through a 
 - **AND** it does not arm probe thresholds, endstop reasons, stepper-stop behavior, or homing watchdogs
 
 #### Scenario: Stock probing remains available after calibration
-- **WHEN** calibration completes, fails, or is cancelled
+- **WHEN** calibration completes, fails, or is cancelled and post-capture sensor configuration remains exactly `60`
 - **THEN** subsequent QIDI Z homing, probing, Z tilt, and bed mesh operations use their stock behavior
+
+#### Scenario: Direct reads change stock sensor configuration
+- **WHEN** the post-capture CS1237 configuration or homing state differs from the validated idle preimage
+- **THEN** calibration reports no candidate and requires `FIRMWARE_RESTART`
+- **AND** Klipper enters shutdown before any subsequent probing or calibration motion can use the changed sensor state
 
 ### Requirement: Calibration uses stationary PA-enabled extrusion
 The system SHALL test pressure advance with bounded positive E-only trapezoids injected into the active extruder trapq with PA eligibility enabled while the toolhead remains stationary over the rear trash chute.
@@ -177,9 +182,19 @@ The system SHALL collect bounded CS1237 direct-read responses through a validate
 The system SHALL report a pressure advance candidate only when the force response demonstrates a repeatable transition from insufficient compensation to excessive compensation inside the tested K range and all quality gates pass.
 
 #### Scenario: Valid response produces an interior candidate
-- **WHEN** repeated cycles have adequate coverage and signal strength, no saturation, consistent polarity, acceptable timing, and a unique excessive-compensation transition inside the tested range
-- **THEN** the system selects the final non-excessive pressure advance estimate from the refined range
-- **AND** corroborating transition, settling, overshoot, and repeatability metrics agree within validated tolerances
+- **WHEN** repeated cycles at two distinct validated E accelerations have adequate coverage and signal strength, no saturation, consistent polarity, acceptable timing, one ordered signed recovery-area bracket, and a unique composite-objective minimum inside the tested range
+- **THEN** each acceleration profile selects the same final non-excessive pressure advance grid value from the refined range
+- **AND** transition tracking, rise/fall delay, settling, recovery, plateau-slope, overshoot, undershoot, signed-area, and repeatability metrics agree within validated tolerances
+
+#### Scenario: Candidate depends on acceleration
+- **WHEN** complete repeated sweeps at the two validated E accelerations select different refined-grid K values
+- **THEN** the system reports an acceleration-dependent inconclusive reason
+- **AND** the system reports no PA candidate
+
+#### Scenario: Signed recovery evidence does not bracket compensation
+- **WHEN** post-deceleration signed recovery area does not transition once from positive residual pressure to negative reversal inside the tested K range near the composite minimum
+- **THEN** the system reports an inconclusive recovery-evidence reason
+- **AND** the system reports no PA candidate
 
 #### Scenario: No detectable force response is inconclusive
 - **WHEN** flow transitions do not produce force changes distinguishable from baseline noise

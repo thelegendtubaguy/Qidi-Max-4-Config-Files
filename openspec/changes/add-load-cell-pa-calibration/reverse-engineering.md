@@ -242,7 +242,7 @@ mcu.register_response(None, "query_cs1237_data", oid)
 
 A plain `lookup_command()` is deliberate. `lookup_query_command().send()` serializes request/reply handling. The capture path instead registers one temporary OID-scoped callback and queues bounded requests asynchronously.
 
-The direct response has no request sequence field. The MCU command handler emits one response for each processed `query_cs1237_read`, and Klipper's serial transport preserves command ordering and prevents retransmitted protocol blocks from being executed as new commands. The adapter therefore accounts by ordered accepted-response cardinality, rejects underflow and overflow, caps retained accepted and rejected responses at the planned request count, and records malformed responses separately. Any changed firmware that violates this one-command/one-response contract fails the capture rather than being treated as a complete batch.
+The direct response has no request sequence field. Firmware structure suggests one response per processed `query_cs1237_read`, but a controlled 250 Hz pulse produced two callbacks with identical `#sent_time` and payload while total accepted cardinality still equaled requested cardinality. The host cannot prove that those callbacks represent distinct requests or conversions. The adapter therefore rejects duplicate `(sent_time, payload)` identities, underflow, overflow, and malformed responses; caps retained accepted and rejected responses at the planned request count; and no longer treats cardinality alone as proof of one-command/one-distinct-response behavior.
 
 Both `minclock` and `reqclock` are required. A 100 Hz experiment using only `reqclock` sent requests in bursts, returned `40/100` responses, and showed a `0.739 s` gap. In Klipper's serial queue, `reqclock` is a requested deadline; it is not a not-before time. Equal future `minclock` and `reqclock` produced the intended pacing.
 
@@ -258,7 +258,7 @@ Each retained run was one second with no heating, motion, extrusion, homing, pro
 | 800 Hz | 800 | 800 | `0.999480 s` | `0.957 ms` | `2.458 ms` | `3.957 ms` | `0.563 ms` |
 | 1000 Hz | 1000 | 994 | `0.998915 s` | `0.899 ms` | `2.426 ms` | `7.038 ms` | `0.579 ms` |
 
-The idle 500 Hz path returned full host-response coverage with lower command pressure and less duplicate-response behavior than 800 Hz, so it was selected as the starting rate for trapq validation. Under-load testing later found incomplete 500 Hz runs; it is not a validated production default. The 1000 Hz path failed idle full-response-coverage requirements.
+The idle 500 Hz path returned full host-response coverage with lower command pressure and less repeated-value behavior than 800 Hz, so it was selected as the starting rate for trapq validation. Under-load testing later found incomplete 500 Hz runs, and a 250 Hz follow-up exposed duplicate response identity plus changed post-capture stock configuration. No direct-read rate is a validated production default. The 1000 Hz path failed idle full-response-coverage requirements.
 
 The CS1237 remains configured for 1280 SPS while host capture requests 500 reads per second. The ADC configuration rate and host requested-read rate are separate values and are both recorded in diagnostic artifacts. A `500/500` response count does not prove 500 distinct conversions or bound the age of the cached conversion returned in each response.
 
@@ -335,7 +335,15 @@ A temporary bounded hardware command queued one PA-eligible direct trapq pulse a
 
 The production resource registry contains entries for `0.2`, `0.4`, `0.6`, and `0.8 mm` nozzles, but each entry has `hardware_validated=False` and no pulse values. The `0.4 mm` exploration proves feasibility, not safe production bounds or candidate repeatability. Preflight therefore continues to return `NOZZLE_PLAN_UNVALIDATED`.
 
-Under-load direct responses showed measurable low/high/low force changes, but response completeness and cycle shape were not stable enough for candidate selection. Three of nine `500 Hz` captures missed one to three responses and maximum send intervals reached `15.096 ms`; the one `250 Hz` capture was complete. Near-zero and large isolated excursions remained present during force transitions. Conversion freshness, force-safe invalid classification, repeated-cycle timing, and candidate selection remain unresolved.
+Under-load direct responses showed measurable low/high/low force changes, but response completeness and cycle shape were not stable enough for candidate selection. Three of nine `500 Hz` captures missed one to three responses and maximum send intervals reached `15.096 ms`; one earlier `250 Hz` capture returned `363/363`.
+
+A follow-up two-acceleration plan used K values `0.012`, `0.016`, `0.020`, `0.024`, and `0.028`, `10` and `20 mm/s²`, two repeats, and 250 Hz acquisition. It stopped after the first K `0.012` pulse. That pulse preserved XYZ, PA, smooth time, and filament source and returned `351/351`, but two callbacks shared identical `#sent_time` and payload values. The next stock configuration query returned `190` instead of required configuration `60`. The temporary harness let that expected compatibility failure escape as an internal G-code error, placing Klipper in shutdown. `FIRMWARE_RESTART`, final `CLEAR_OOZE`/`CLEAR_FLUSH`, full `G28`, absolute `Z=200`, trash parking, heater-off verification, and removal of the temporary harness all completed successfully. Direct-read acquisition remains unsafe for calibration until duplicate identity and post-capture configuration preservation are resolved.
+
+The production adapter now rejects duplicate response identities, validates exact stock configuration after every capture, and intentionally invokes Klipper shutdown with a firmware-restart requirement if stock sensor state changes. Public and developer G-code boundaries convert ordinary compatibility failures to command errors instead of accidental internal errors. These fail-closed guards do not make the acquisition path validated; `CALIBRATION_ENABLED` remains false.
+
+The operator reported a conventional printed PA calibration of `0.020` for the tested `0.4 mm` PLA-at-`215 °C` setup and considers a relative difference of ten to twenty percent reasonable. The corresponding `0.016` through `0.024` interval is a provisional comparison window, not a validated acceptance criterion. No load-cell candidate exists for comparison yet, so task 5.3 remains incomplete.
+
+The pure analysis now retains the acceleration-defined ramp shape for every cycle and validates `ramp_time = (high_velocity - low_velocity) / acceleration`. Baseline-normalized force is compared with that ideal E-flow waveform. A fixed three-component objective combines transition tracking, excessive compensation, and recovery stability; signed post-deceleration recovery area independently requires one ordered positive-to-negative bracket. Deterministic fixtures plant the same `0.020` optimum at `10` and `20 mm/s²`, reject acceleration-dependent profile results, reject incomplete profile/K coverage, and preserve all prior capture-quality gates. This is software validation only; physical traces around `0.016`, `0.020`, and `0.024` at both accelerations remain required.
 
 ## Reddit post and comment evidence
 
@@ -382,15 +390,15 @@ No Reddit source code was available at inspection time. No implementation was co
 
 - `53Aries/Q2-Klipper` commit `076ac9789e72c219fd8b93cf439c69670b8cdea2`, GPL-3.0, supplied decompiled QIDI CS1237 lifecycle context. The analyzed Max 4 binary has a seven-field setup-home protocol that differs from the older decompiled source.
 - `Klipper3d/klipper` commit `7046bd00ef5c30dec6febc724f8d22967433c45c`, GPL-3.0, supplied trapq and PA transform behavior.
-- `CNCKitchen/PrusaPATuner`, AGPL-3.0, demonstrates the general load-cell back-pressure calibration concept. Analysis and orchestration code in this change is independently implemented; no AGPL code is copied.
+- `CNCKitchen/PrusaPATuner` commit `1324f6759b74670b58136b82387a63c9a4d7d626`, AGPL-3.0, was reviewed for behavior and architecture: it sweeps Buddy `M572`, explicitly sets E/planner acceleration, and evaluates several force-response estimators. This change does not copy its source, formulas, weights, comments, or test vectors; the local three-component objective, signed-area gate, acceleration-profile agreement rule, and fixtures are independently specified and implemented.
 - The Reddit post and comments are treated as public claims and design-risk prompts, not implementation source.
 - QIDI binaries are analyzed for interoperability and are identified by hash rather than redistributed.
 
 ## Installer and runtime state
 
-The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `b6af2f05a1f635a5cc71398e6e9456197b0c1cbd63dad1d0c0b27b278d93e191` for package `26.07.26.3`.
+The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `6cc0a0e71331c7818d6ab624757f60794a3815188f18cc5e1d58c61d295e27d4` for package `26.07.26.6`. Package `26.07.26.4` was used for the aborted two-acceleration follow-up; packages `26.07.26.5` and `26.07.26.6` add duplicate-identity, post-capture sensor-state, handler-ownership, intentional-shutdown, and G-code error-boundary guards.
 
-Package `26.07.26.3` was installed on the controlled Max 4 from the validated development bundle. The state ledger and live extra reported the expected package version and module hash after a verified Klipper service-process restart. Klipper reported `ready`, the heater target was zero, the temporary hardware-spike module/config were absent, `developer_capture` was false, and `TLTG_PA_CALIBRATE TEMP=215 NOZZLE=0.4` returned `PA_CALIBRATION_UNVALIDATED` without physical effects.
+Packages `26.07.26.3` through `26.07.26.6` were installed on the controlled Max 4 from validated development bundles and loaded through verified Klipper service-process restarts. Final `26.07.26.6` state reported the expected module hash, Klipper `ready`, heater target zero, no temporary hardware-spike module/config, the QIDI Box source still loaded, and public calibration disabled.
 
 The managed destination supports collision detection, drift rejection, atomic replacement, rollback, state-ledger recording, upgrade, uninstall, and optional preimage restoration. Recovery-sentinel validation checks expected existence, SHA-256, and mode for rollback-tracked files outside `config/`.
 
@@ -400,8 +408,8 @@ A Moonraker `/printer/restart` reloads configuration but does not reload an alre
 
 The direct-read implementation passed:
 
-- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 52 tests;
-- `python3 scripts/run_installer_core_tests.py` — 242 tests;
+- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 59 tests;
+- `python3 scripts/run_installer_core_tests.py` — 249 tests;
 - `python3 scripts/format_klipper_configs.py` — no formatting changes;
 - `python3 scripts/check_installer_known_versions.py` — compatibility metadata valid;
 - `openspec validate add-load-cell-pa-calibration --strict` — valid;
@@ -460,7 +468,7 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Analysis failure restores state | Injected analysis failure restores before emitting failure. | Concrete backend remains. |
 | Klipper shutdown interrupts calibration | Motion-unsafe cleanup omits clear motion and records manual cleanup. | Shutdown event wiring remains. |
 | Fresh installation deploys the capability | Installer external-file and managed-tree integration tests pass. | No current deployment is requested. |
-| Python extra upgrade reloads module code | Packages `26.07.26.2` and `26.07.26.3` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
+| Python extra upgrade reloads module code | Packages through `26.07.26.6` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
 | Destination collision fails safely | Installer collision and drift tests pass before writes. | None. |
 | Failed installation rolls back the extra | Integration tests cover external-file rollback and recovery state. | None. |
 | Uninstall removes only the managed extra | Exact-hash removal and preimage restoration tests pass. | None. |

@@ -96,40 +96,99 @@ class TLTGPressureAdvancePureTests(unittest.TestCase):
             negative_metrics.undershoot,
             delta=0.02,
         )
+        self.assertEqual(positive_metrics.polarity, 1)
+        self.assertEqual(negative_metrics.polarity, -1)
+
+    def test_signed_recovery_area_distinguishes_lag_from_single_sample_spike(self):
+        window = pa.TransitionWindow(0.02, 0.0, 1.0, 2.0, 3.0)
+        lagging = pa.analyze_cycle(
+            _synthetic_cycle(0.02, polarity=1, undershoot=0.0, recovery_bias=0.12),
+            window,
+        )
+        excessive = pa.analyze_cycle(
+            _synthetic_cycle(0.02, polarity=1, undershoot=0.80),
+            window,
+        )
+        clean = pa.analyze_cycle(
+            _synthetic_cycle(0.02, polarity=1, undershoot=0.0), window
+        )
+        spiked = _synthetic_cycle(0.02, polarity=1, undershoot=0.0)
+        spiked[210] = pa.TimedSample(spiked[210].time, -100)
+        spike_metrics = pa.analyze_cycle(spiked, window)
+        self.assertGreater(lagging.fall_signed_area, 0.0)
+        self.assertLess(excessive.fall_signed_area, 0.0)
+        self.assertGreater(spike_metrics.undershoot, 0.5)
+        self.assertLess(
+            abs(spike_metrics.fall_signed_area - clean.fall_signed_area), 0.02
+        )
+
+    def test_shaped_flow_analysis_uses_acceleration_and_post_deceleration_area(self):
+        window = _shaped_window()
+        ideal = pa.analyze_cycle(_synthetic_shaped_cycle(), window)
+        decel_error = pa.analyze_cycle(
+            _synthetic_shaped_cycle(deceleration_error=0.20), window
+        )
+        self.assertLess(ideal.tracking_error, 0.01)
+        self.assertAlmostEqual(ideal.fall_signed_area, 0.0, delta=0.001)
+        self.assertGreater(decel_error.tracking_error, ideal.tracking_error)
+        self.assertAlmostEqual(
+            decel_error.fall_signed_area,
+            ideal.fall_signed_area,
+            delta=0.001,
+        )
+        self.assertEqual(decel_error.acceleration, 15.0)
+        self.assertEqual(decel_error.low_velocity, 0.5)
+        self.assertEqual(decel_error.high_velocity, 2.0)
+
+    def test_composite_objective_balances_components_and_rejects_near_tie(self):
+        metrics = _selection_case_metrics({"name": "competing-components"})
+        competing = [
+            _replace_metric(
+                item,
+                tracking_error=0.008,
+                rise_delay=0.008,
+                fall_delay=0.008,
+            )
+            if item.k == 0.016
+            else item
+            for item in metrics
+        ]
+        self.assertEqual(pa.select_pa_value(competing).value, 0.020)
+        near_tie = [
+            _replace_metric(
+                item,
+                tracking_error=0.005,
+                rise_delay=0.005,
+                fall_delay=0.005,
+            )
+            if item.k == 0.016
+            else item
+            for item in metrics
+        ]
+        self.assertEqual(
+            pa.select_pa_value(near_tie).reason,
+            "COMPOSITE_OBJECTIVE_AMBIGUOUS",
+        )
 
     def test_selection_fixtures_fail_closed_or_return_interior_value(self):
         cases = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
         for case in cases:
             with self.subTest(case=case["name"]):
-                metrics = []
-                for k, first, second in case["responses"]:
-                    for undershoot in (first, second):
-                        metrics.append(
-                            pa.CycleMetrics(
-                                k=k,
-                                amplitude=100.0,
-                                noise=case.get("noise", 0.01),
-                                rise_delay=0.01,
-                                fall_delay=0.01,
-                                overshoot=max(0.0, undershoot - 0.02),
-                                undershoot=undershoot,
-                                settling_error=0.01,
-                                saturated=case.get("saturated", False),
-                            )
-                        )
+                metrics = _selection_case_metrics(case)
                 result = pa.select_pa_value(metrics)
                 if "expected_value" in case:
                     self.assertTrue(result.successful)
                     self.assertAlmostEqual(result.value, case["expected_value"])
+                    self.assertEqual(result.profile_values, (0.02, 0.02))
+                    reversed_result = pa.select_pa_value(tuple(reversed(metrics)))
+                    self.assertEqual(reversed_result, result)
                 else:
                     self.assertFalse(result.successful)
                     self.assertEqual(result.reason, case["expected_reason"])
                     self.assertNotIn("PA_VALUE=", result.reason)
 
     def test_weak_absolute_signal_fails_closed(self):
-        metrics = []
-        for k, undershoot in ((0.0, 0.0), (0.01, 0.01), (0.02, 0.08), (0.03, 0.10)):
-            metrics.extend(_metrics(k, undershoot, undershoot, amplitude=0.5))
+        metrics = _selection_case_metrics({"name": "weak", "amplitude": 0.5})
         self.assertEqual(
             pa.select_pa_value(metrics).reason,
             "WEAK_OR_NOISY_SIGNAL",
@@ -137,9 +196,7 @@ class TLTGPressureAdvancePureTests(unittest.TestCase):
 
     def test_capture_quality_fixtures_fail_closed(self):
         fixture = json.loads(TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
-        metrics = []
-        for k, undershoot in ((0.0, 0.0), (0.01, 0.01), (0.02, 0.02), (0.03, 0.04), (0.04, 0.08), (0.05, 0.10)):
-            metrics.extend(_metrics(k, undershoot, undershoot))
+        metrics = _selection_case_metrics({"name": "quality"})
         for case in fixture["quality_cases"]:
             with self.subTest(case=case["name"]):
                 quality = pa.CaptureQuality(
@@ -148,17 +205,60 @@ class TLTGPressureAdvancePureTests(unittest.TestCase):
                 result = pa.select_pa_value(metrics, quality=quality)
                 self.assertEqual(result.reason, case.get("expected_reason"))
 
-    def test_selection_rejects_uncorroborated_and_non_monotonic_responses(self):
-        uncorroborated = []
-        for k, undershoot in ((0.0, 0.0), (0.01, 0.01), (0.02, 0.02), (0.03, 0.08)):
-            uncorroborated.append(_metrics(k, undershoot, undershoot)[0])
+    def test_selection_rejects_incomplete_and_non_monotonic_profiles(self):
+        metrics = _selection_case_metrics({"name": "base"})
+        uncorroborated = [
+            item
+            for index, item in enumerate(metrics)
+            if not (item.acceleration == 10.0 and item.k == 0.02 and index % 2)
+        ]
         self.assertEqual(
             pa.select_pa_value(uncorroborated).reason,
             "INSUFFICIENT_CORROBORATION",
         )
-        non_monotonic = []
-        for k, undershoot in ((0.0, 0.0), (0.01, 0.08), (0.02, 0.01), (0.03, 0.09)):
-            non_monotonic.extend(_metrics(k, undershoot, undershoot))
+        one_profile = [item for item in metrics if item.acceleration == 10.0]
+        self.assertEqual(
+            pa.select_pa_value(one_profile).reason,
+            "INCOMPLETE_ACCELERATION_PROFILES",
+        )
+        incomplete = [
+            item
+            for item in metrics
+            if not (item.acceleration == 20.0 and item.k == 0.028)
+        ]
+        self.assertEqual(
+            pa.select_pa_value(incomplete).reason,
+            "INCOMPLETE_PROFILE_COVERAGE",
+        )
+        inconsistent_polarity = list(metrics)
+        inconsistent_polarity[0] = _replace_metric(
+            inconsistent_polarity[0], polarity=-1
+        )
+        self.assertEqual(
+            pa.select_pa_value(inconsistent_polarity).reason,
+            "INCONSISTENT_POLARITY",
+        )
+        incompatible_flow = [
+            _replace_metric(item, high_velocity=2.0)
+            if item.acceleration == 20.0
+            else item
+            for item in metrics
+        ]
+        self.assertEqual(
+            pa.select_pa_value(incompatible_flow).reason,
+            "INCOMPATIBLE_ACCELERATION_PROFILES",
+        )
+        non_monotonic = [
+            _replace_metric(
+                item,
+                fall_signed_area=(
+                    0.2
+                    if item.acceleration == 10.0 and item.k == 0.024
+                    else item.fall_signed_area
+                ),
+            )
+            for item in metrics
+        ]
         self.assertEqual(
             pa.select_pa_value(non_monotonic).reason,
             "NON_MONOTONIC_RESPONSE",
@@ -192,8 +292,13 @@ class TLTGPressureAdvancePureTests(unittest.TestCase):
         self.assertEqual(pulse.moves[0].cruise_time, plan.lead_time)
         self.assertEqual(pulse.moves[-1].cruise_time, plan.lead_time)
         self.assertEqual(pulse.transition.rise, 5.0 + plan.lead_time)
-        self.assertLess(pulse.transition.rise, pulse.transition.fall)
-        self.assertLess(pulse.transition.fall, pulse.transition.end)
+        self.assertLess(pulse.transition.rise, pulse.transition.rise_end)
+        self.assertLess(pulse.transition.rise_end, pulse.transition.fall)
+        self.assertLess(pulse.transition.fall, pulse.transition.fall_end)
+        self.assertLess(pulse.transition.fall_end, pulse.transition.end)
+        self.assertEqual(pulse.transition.acceleration, plan.acceleration)
+        self.assertEqual(pulse.transition.low_velocity, plan.low_velocity)
+        self.assertEqual(pulse.transition.high_velocity, plan.high_velocity)
         self.assertGreater(pulse.end_e, 10.0)
         for previous, following in zip(pulse.moves, pulse.moves[1:]):
             previous_end = (
@@ -203,6 +308,24 @@ class TLTGPressureAdvancePureTests(unittest.TestCase):
                 + previous.decel_time
             )
             self.assertAlmostEqual(previous_end, following.print_time)
+
+    def test_analysis_rejects_acceleration_ramp_mismatch(self):
+        window = pa.TransitionWindow(
+            k=0.02,
+            start=0.0,
+            rise=1.0,
+            rise_end=1.2,
+            fall=2.0,
+            fall_end=2.2,
+            end=3.0,
+            acceleration=20.0,
+            low_velocity=0.5,
+            high_velocity=2.0,
+        )
+        with self.assertRaisesRegex(pa.CalibrationError, "does not match"):
+            pa.analyze_cycle(
+                _synthetic_cycle(0.02, polarity=1, undershoot=0.0), window
+            )
 
 
 class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
@@ -686,6 +809,20 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         self.assertEqual(pa._toolhead_print_time(toolhead, 1.0), 12.5)
         self.assertEqual(toolhead.status_calls, [1.0])
 
+    def test_developer_capture_converts_toolhead_interface_error(self):
+        sensor = _FakeSensor()
+        printer = _CaptureRuntimePrinter(
+            {
+                "gcode": _FakeGcode(),
+                "print_stats": _StatusObject({"state": "standby"}),
+                "idle_timeout": _StatusObject({"state": "Idle"}),
+                "probe_air": type("Probe", (), {"sensor_helper": sensor})(),
+            }
+        )
+        runtime = pa.TLTGPressureAdvance(_DeveloperCaptureConfig(printer))
+        with self.assertRaisesRegex(RuntimeError, "UNSUPPORTED_TOOLHEAD_INTERFACE"):
+            runtime.cmd_capture(_FakeGcmd({"SECONDS": 0.01, "RATE": 100}))
+
     def test_sensor_adapter_schedules_non_homing_reads_and_releases_ownership(self):
         sensor = _FakeSensor()
         printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})
@@ -791,10 +928,29 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         )
         self.assertEqual(capture.rejected_messages[0]["data"], "626164")
 
-    def test_sensor_adapter_caps_valid_response_overflow(self):
+    def test_sensor_adapter_rejects_duplicate_response_identity(self):
         sensor = _FakeSensor(extra_response_indices={0})
-        printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})
-        capture = pa.QidiCS1237Adapter(printer).capture(_FakeReactor(), 0.01, 100)
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        capture = pa.QidiCS1237Adapter(printer).capture(
+            _FakeReactor(), 0.01, 100
+        )
+        self.assertEqual(capture.received_responses, 1)
+        self.assertEqual(capture.issues, ("DUPLICATE_RESPONSE_IDENTITY",))
+        self.assertEqual(len(capture.rejected_messages), 1)
+        self.assertFalse(capture.complete)
+
+    def test_sensor_adapter_caps_unique_response_overflow(self):
+        sensor = _FakeSensor(
+            extra_response_indices={0}, extra_response_time_offset=0.0001
+        )
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        capture = pa.QidiCS1237Adapter(printer).capture(
+            _FakeReactor(), 0.01, 100
+        )
         self.assertEqual(capture.received_responses, 1)
         self.assertEqual(capture.issues, ("RESPONSE_OVERFLOW",))
         self.assertEqual(len(capture.rejected_messages), 1)
@@ -802,13 +958,28 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
 
     def test_sensor_adapter_cleanup_does_not_remove_replacement_handler(self):
         sensor = _FakeSensor()
-        printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
         replacement = lambda params: None
         key = (pa.QidiCS1237Adapter.RESPONSE_NAME, sensor.oid)
-        reactor = _FakeReactor(on_pause=lambda: sensor.mcu._serial.handlers.__setitem__(key, replacement))
-        capture = pa.QidiCS1237Adapter(printer).capture(reactor, 0.01, 100)
-        self.assertEqual(capture.issues, ("SENSOR_HANDLER_OWNERSHIP_LOST",))
+        reactor = _FakeReactor(
+            on_pause=lambda: sensor.mcu._serial.handlers.__setitem__(
+                key, replacement
+            )
+        )
+        with self.assertRaisesRegex(
+            pa.CaptureOperationError, "SENSOR_OWNERSHIP_UNSAFE"
+        ) as raised:
+            pa.QidiCS1237Adapter(printer).capture(reactor, 0.01, 100)
+        self.assertIn(
+            "SENSOR_HANDLER_OWNERSHIP_LOST", raised.exception.capture.issues
+        )
+        self.assertIn(
+            "STOCK_SENSOR_STATE_UNVERIFIED", raised.exception.capture.issues
+        )
         self.assertIs(sensor.mcu._serial.handlers[key], replacement)
+        self.assertEqual(len(printer.shutdowns), 1)
 
     def test_sensor_adapter_releases_ownership_when_send_fails(self):
         sensor = _FakeSensor(fail_after=1)
@@ -823,6 +994,24 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
             (pa.QidiCS1237Adapter.RESPONSE_NAME, sensor.oid),
             sensor.mcu._serial.handlers,
         )
+
+    def test_sensor_adapter_shuts_down_if_stock_config_changes_after_capture(self):
+        sensor = _FakeSensor()
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiCS1237Adapter(printer)
+
+        def mutate_config():
+            sensor.query_cs1237_config_read_cmd.config = 190
+
+        with self.assertRaisesRegex(
+            pa.CaptureOperationError, "STOCK_SENSOR_STATE_CHANGED"
+        ) as raised:
+            adapter.capture(_FakeReactor(on_pause=mutate_config), 0.01, 100)
+        self.assertIn("STOCK_SENSOR_STATE_CHANGED", raised.exception.capture.issues)
+        self.assertEqual(len(printer.shutdowns), 1)
+        self.assertIn("FIRMWARE_RESTART required", printer.shutdowns[0])
 
     def test_sensor_adapter_releases_local_ownership_when_unregister_fails(self):
         sensor = _FakeSensor(fail_unregister=True)
@@ -842,11 +1031,18 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
             (pa.QidiCS1237Adapter.RESPONSE_NAME, sensor.oid),
             sensor.mcu._serial.handlers,
         )
+        self.assertIn(
+            "STOCK_SENSOR_STATE_UNVERIFIED", raised.exception.capture.issues
+        )
+        self.assertEqual(len(printer.shutdowns), 1)
 
     def test_calibration_command_is_hard_disabled_before_side_effects(self):
         printer = _RuntimePrinter()
         config = _FakeConfig(printer)
         runtime = pa.TLTGPressureAdvance(config)
+        invalid = _FakeGcmd({"TEMP": 240.0, "NOZZLE": 0.3})
+        with self.assertRaisesRegex(RuntimeError, "INVALID_NOZZLE"):
+            runtime.cmd_calibrate(invalid)
         gcmd = _FakeGcmd({"TEMP": 240.0, "NOZZLE": 0.4})
         with self.assertRaisesRegex(RuntimeError, "PA_CALIBRATION_UNVALIDATED"):
             runtime.cmd_calibrate(gcmd)
@@ -861,12 +1057,14 @@ class _FakeCommand:
         *,
         drop_indices=None,
         extra_response_indices=None,
+        extra_response_time_offset=0.0,
         payload=b"\x01\x00\x00\x00",
         fail_after=None,
     ):
         self.mcu = mcu
         self.drop_indices = set(drop_indices or ())
         self.extra_response_indices = set(extra_response_indices or ())
+        self.extra_response_time_offset = extra_response_time_offset
         self.payload = payload
         self.fail_after = fail_after
         self.sends = []
@@ -887,7 +1085,10 @@ class _FakeCommand:
             }
             callback(params)
             if index in self.extra_response_indices:
-                callback(dict(params))
+                extra = dict(params)
+                extra["#sent_time"] += self.extra_response_time_offset
+                extra["#receive_time"] += self.extra_response_time_offset
+                callback(extra)
 
 
 class _FakeConfigReadCommand:
@@ -925,6 +1126,7 @@ class _FakeMcu:
         *,
         drop_indices=None,
         extra_response_indices=None,
+        extra_response_time_offset=0.0,
         payload=b"\x01\x00\x00\x00",
         fail_after=None,
         fail_unregister=False,
@@ -935,6 +1137,7 @@ class _FakeMcu:
             self,
             drop_indices=drop_indices,
             extra_response_indices=extra_response_indices,
+            extra_response_time_offset=extra_response_time_offset,
             payload=payload,
             fail_after=fail_after,
         )
@@ -966,6 +1169,7 @@ class _FakeSensor:
         config_oid=None,
         drop_indices=None,
         extra_response_indices=None,
+        extra_response_time_offset=0.0,
         payload=b"\x01\x00\x00\x00",
         fail_after=None,
         fail_unregister=False,
@@ -974,6 +1178,7 @@ class _FakeSensor:
         self.mcu = _FakeMcu(
             drop_indices=drop_indices,
             extra_response_indices=extra_response_indices,
+            extra_response_time_offset=extra_response_time_offset,
             payload=payload,
             fail_after=fail_after,
             fail_unregister=fail_unregister,
@@ -1005,9 +1210,13 @@ class _FakeReactor:
 class _LookupPrinter:
     def __init__(self, objects):
         self.objects = objects
+        self.shutdowns = []
 
     def lookup_object(self, name, default=None):
         return self.objects.get(name, default)
+
+    def invoke_shutdown(self, message):
+        self.shutdowns.append(message)
 
 
 class _StatusObject:
@@ -1237,12 +1446,29 @@ class _FakeConfig:
         return default
 
 
+class _DeveloperCaptureConfig(_FakeConfig):
+    def getboolean(self, name, default=False):
+        return True
+
+
+class _CaptureRuntimePrinter(_LookupPrinter):
+    def __init__(self, objects):
+        super().__init__(objects)
+        self.reactor = _FakeReactor()
+
+    def get_reactor(self):
+        return self.reactor
+
+
 class _FakeGcmd:
     def __init__(self, params):
         self.params = params
         self.responses = []
 
     def get_float(self, name, default=None, **kwargs):
+        return self.params.get(name, default)
+
+    def get_int(self, name, default=None, **kwargs):
         return self.params.get(name, default)
 
     def error(self, message):
@@ -1345,20 +1571,76 @@ def _filament_printer(*, sensor, variables, controller=None, box=None):
     return _LookupPrinter(objects)
 
 
-def _metrics(k, first, second, amplitude=100.0):
-    return [
-        pa.CycleMetrics(
-            k=k,
-            amplitude=amplitude,
-            noise=0.01,
-            rise_delay=0.01,
-            fall_delay=0.01,
-            overshoot=max(0.0, undershoot - 0.02),
-            undershoot=undershoot,
-            settling_error=0.01,
-        )
-        for undershoot in (first, second)
-    ]
+def _selection_case_metrics(case):
+    k_values = (0.012, 0.016, 0.020, 0.024, 0.028)
+    default_optimum = 0.020
+    configured = case.get("profile_optimums", {})
+    metrics = []
+    for acceleration in (10.0, 20.0):
+        optimum = configured.get(str(acceleration), default_optimum)
+        for k in k_values:
+            distance = (k - optimum) / 0.004
+            under = max(0.0, -distance)
+            over = max(0.0, distance)
+            for repeat_sign in (-1.0, 1.0):
+                jitter = 0.001 * repeat_sign
+                if case.get("ambiguous"):
+                    tracking_error = 0.05 + jitter
+                    rise_delay = 0.02 + jitter
+                    fall_delay = 0.02 + jitter
+                    overshoot = 0.03 + jitter
+                    undershoot = 0.03 + jitter
+                    settling_error = 0.04 + jitter
+                    recovery_error = 0.04 + jitter
+                    plateau_slope = 0.01 + jitter
+                else:
+                    tracking_error = 0.02 + 0.08 * under + 0.015 * over + jitter
+                    rise_delay = 0.01 + 0.03 * under + jitter
+                    fall_delay = 0.01 + 0.03 * under + jitter
+                    overshoot = 0.04 * over + jitter
+                    undershoot = 0.06 * over + jitter
+                    settling_error = 0.015 + 0.025 * abs(distance) + jitter
+                    recovery_error = 0.015 + 0.03 * abs(distance) + jitter
+                    plateau_slope = 0.003 * abs(distance) + jitter
+                if (
+                    case.get("inconsistent")
+                    and acceleration == 10.0
+                    and k == 0.020
+                    and repeat_sign > 0.0
+                ):
+                    tracking_error += 0.10
+                metrics.append(
+                    pa.CycleMetrics(
+                        k=k,
+                        amplitude=case.get("amplitude", 100.0),
+                        noise=case.get("noise", 0.01),
+                        rise_delay=max(0.0, rise_delay),
+                        fall_delay=max(0.0, fall_delay),
+                        overshoot=max(0.0, overshoot),
+                        undershoot=max(0.0, undershoot),
+                        settling_error=max(0.0, settling_error),
+                        saturated=case.get("saturated", False),
+                        tracking_error=max(0.0, tracking_error),
+                        fall_signed_area=(
+                            -0.03 * distance
+                            + case.get("recovery_bias", 0.0)
+                            + 0.0005 * repeat_sign
+                        ),
+                        recovery_error=max(0.0, recovery_error),
+                        plateau_slope=plateau_slope,
+                        acceleration=acceleration,
+                        low_velocity=0.5,
+                        high_velocity=3.0,
+                        polarity=1,
+                    )
+                )
+    return metrics
+
+
+def _replace_metric(item, **updates):
+    values = dict(item.__dict__)
+    values.update(updates)
+    return pa.CycleMetrics(**values)
 
 
 def _frames(*values):
@@ -1369,7 +1651,45 @@ def _frames(*values):
     return b"".join(frames)
 
 
-def _synthetic_cycle(k, polarity, undershoot):
+def _shaped_window():
+    return pa.TransitionWindow(
+        k=0.02,
+        start=0.0,
+        rise=1.0,
+        rise_end=1.1,
+        fall=2.0,
+        fall_end=2.1,
+        end=3.0,
+        acceleration=15.0,
+        low_velocity=0.5,
+        high_velocity=2.0,
+    )
+
+
+def _synthetic_shaped_cycle(deceleration_error=0.0):
+    samples = []
+    for index in range(301):
+        sample_time = index * 0.01
+        if sample_time < 1.0:
+            expected = 0.0
+        elif sample_time < 1.1:
+            expected = (sample_time - 1.0) / 0.1
+        elif sample_time < 2.0:
+            expected = 1.0
+        elif sample_time < 2.1:
+            expected = 1.0 - (sample_time - 2.0) / 0.1
+        else:
+            expected = 0.0
+        residual = (
+            deceleration_error if 2.0 <= sample_time < 2.1 else 0.0
+        )
+        samples.append(
+            pa.TimedSample(sample_time, int(round((expected + residual) * 100.0)))
+        )
+    return samples
+
+
+def _synthetic_cycle(k, polarity, undershoot, recovery_bias=0.0):
     samples = []
     step = 0.01
     index = 0
@@ -1382,9 +1702,11 @@ def _synthetic_cycle(k, polarity, undershoot):
         elif t < 2.0:
             level = 1.0
         elif t < 2.1:
-            level = 1.0 - (t - 2.0) / 0.1 * (1.0 + undershoot)
+            recovery_level = recovery_bias - undershoot
+            level = 1.0 + (t - 2.0) / 0.1 * (recovery_level - 1.0)
         elif t < 2.3:
-            level = -undershoot * (1.0 - (t - 2.1) / 0.2)
+            recovery_level = recovery_bias - undershoot
+            level = recovery_level * (1.0 - (t - 2.1) / 0.2)
         else:
             level = 0.0
         counts = int(round(polarity * level * 100.0))

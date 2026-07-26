@@ -19,8 +19,10 @@
 - **Unresolved:** response cadence does not prove ADC conversion freshness or establish conversion time relative to Klipper print time.
 - **Runtime-confirmed:** with stationary direct-extruder trapq work active, six of nine 500 Hz captures returned every request; the other three missed one to three responses and maximum send intervals reached `15.096 ms`.
 - **Runtime-confirmed:** one 250 Hz stationary direct-trapq capture returned `363/363` responses; one run does not establish a production capture rate.
+- **Runtime-confirmed:** a later 250 Hz pulse returned `351/351`, but two accepted callbacks shared identical `#sent_time` and payload values. Ordered response cardinality alone therefore does not prove one distinct conversion per request.
+- **Runtime-confirmed:** immediately after that pulse, the stock CS1237 configuration read `190` instead of required configuration `60`; the two-acceleration sweep stopped after one pulse, Klipper was firmware-restarted, final chute cleanup and full `G28` succeeded, and the loaded QIDI Box source remained unchanged.
 - **Runtime-confirmed:** near-zero and large isolated excursions remained present during heated and stationary-extrusion captures.
-- **Unresolved:** direct-read conversion freshness, force-safe invalid-excursion classification, saturation behavior, and a production under-load request rate remain unproven.
+- **Unresolved:** direct-read conversion freshness, duplicate-response identity, post-capture configuration preservation, force-safe invalid-excursion classification, saturation behavior, and a production under-load request rate remain unproven.
 
 Sanitized idle cadence evidence is stored in `openspec/changes/add-load-cell-pa-calibration/evidence/direct-read-cadence.json`. Host, MCU, and compiled-artifact hashes are recorded in `openspec/changes/add-load-cell-pa-calibration/reverse-engineering.md`.
 
@@ -33,7 +35,9 @@ Sanitized idle cadence evidence is stored in `openspec/changes/add-load-cell-pa-
 - **Runtime-confirmed:** bounded direct-trapq pulses at `(135, 403, 200)` extruded PLA while recorded X, Y, and Z remained unchanged; PA `0.032` and smooth time `0.03` were restored after every pulse.
 - **Runtime-confirmed:** an ordinary relative E move succeeded after direct pulses, and full `G28` probing succeeded after final cleanup.
 - **Runtime-confirmed:** measured load-cell counts changed during `0.5` to `2.0` or `3.0 mm/s` filament-flow transitions, but repeated responses at K values `0`, `0.032`, and `0.08` did not support a repeatable candidate.
-- **Unresolved:** cancellation, shutdown during generated steps, production queue ownership, and candidate agreement with printed calibration remain unvalidated.
+- **Operator-reported:** conventional printed calibration for the tested `0.4 mm` PLA-at-`215 °C` setup selected PA `0.020`; `0.016` through `0.024` is retained only as a provisional comparison window.
+- **Repository-confirmed:** pure fixtures require the same interior composite-objective minimum and signed recovery-area bracket at `10` and `20 mm/s²`; acceleration-profile disagreement fails closed.
+- **Unresolved:** cancellation, shutdown during generated steps, production queue ownership, physical two-acceleration candidate repeatability, and candidate agreement with printed calibration remain unvalidated.
 
 ## Filament and nozzle state
 

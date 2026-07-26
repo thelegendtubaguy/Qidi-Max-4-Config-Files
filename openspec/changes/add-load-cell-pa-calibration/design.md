@@ -6,7 +6,7 @@ The CS1237 helper retains private bulk acquisition objects and query commands. A
 
 The installed QIDI Klipper `extruder.py` marks normal G-code pressure advance eligible only for positive extrusion combined with X or Y motion. Klipper's C pressure-advance transform actually keys off the extruder trapq move's `can_pressure_advance` flag and does not require physical XY step generation. A Python extra can therefore inject PA-enabled E-only trapezoids directly into the extruder trapq while the toolhead remains stationary, but no stable public API exposes this behavior; the adapter must be version-pinned and must reproduce the safety, timing, and bookkeeping normally provided by the motion planner.
 
-The force-response method drives repeated low/high/low extrusion-rate transitions while testing pressure advance values. Insufficient PA produces delayed rounded transitions; excessive PA produces overshoot and deceleration undershoot. The result is an estimate that requires printer-specific validation, not a guaranteed material property.
+The force-response method drives repeated low/high/low extrusion-rate transitions while testing pressure advance values. Klipper's PA transform changes extruder velocity by approximately `K × nominal E acceleration`, so acceleration is a controlled excitation input rather than an omitted variable. Insufficient PA produces delayed rounded transitions; excessive PA produces overshoot and deceleration undershoot. The result is an estimate that requires printer-specific validation, not a guaranteed material property.
 
 `reverse-engineering.md` records the analyzed host/MCU artifacts, hashes, protocol commands, homing lifecycle, firmware disassembly, rejected bulk path, live scheduled-read measurements, invalid-read evidence, Reddit claims, installer restart caveat, and remaining hardware gaps. `evidence/direct-read-cadence.json` preserves sanitized per-sample counts and timing from the 100, 250, 500, 800, and 1000 Hz idle captures.
 
@@ -68,7 +68,7 @@ The extra looks up `probe_air`, verifies the expected `sensor_helper`, one-shot 
 
 The analyzed toolhead MCU firmware reports protocol version `02.02.01.08` and does not advertise a `cs1237_data` response even though the compiled Python helper registers a queue for it. `CS1237.setup_home()` arms `cs1237_setup_home` with `TriggerDispatch`/`trsync` endstop semantics and is not used for calibration. The supported acquisition path schedules plain `query_cs1237_read` commands at future MCU clocks and captures their `query_cs1237_data` responses through a temporary OID-scoped handler.
 
-Capture owns an exclusive state token. Homing, probing, Z tilt, bed mesh, another calibration, shutdown, and cancellation cannot share the sensor. Capture startup and shutdown leave the probe's zero, threshold, calibration objects, and homing dispatch untouched.
+Capture owns an exclusive state token. Homing, probing, Z tilt, bed mesh, another calibration, shutdown, and cancellation cannot share the sensor. Capture startup and shutdown leave the probe's zero, threshold, calibration objects, and homing dispatch untouched. Accepted callbacks must also have unique `(sent_time, payload)` identities. After handler release, the adapter re-reads homing state and exact configuration `60`; any changed state invokes Klipper shutdown and requires `FIRMWARE_RESTART` before probing can resume.
 
 Alternative: replace the stock probe with upstream Klipper `[load_cell]`. Rejected because it changes vendor homing and probing behavior and would require revalidating the printer's primary Z safety mechanism.
 
@@ -78,10 +78,10 @@ The Python extra is divided into four small units:
 
 1. A QIDI CS1237 adapter schedules bounded non-homing direct reads, decodes signed 24-bit responses, and records host receive timing.
 2. A capture coordinator records bounded responses and the exact directly queued extruder-trapq transition schedule in Klipper print-time coordinates; hardware validation must bound cached-conversion age before treating receive time as sample time.
-3. A pure analysis module normalizes cycle baselines and computes transition delay, rise/fall response, overshoot, deceleration undershoot, settling, and repeatability.
+3. A pure analysis module compares the normalized force trace with the known acceleration-defined E-flow waveform and computes transition tracking error, rise/fall delay, overshoot, deceleration undershoot, signed recovery area, recovery error, plateau slope, settling, and repeatability.
 4. A printer-facing state machine enforces preconditions, queues motion, restores state, and emits results.
 
-The ADC remains configured at 1280 SPS. Initial capture requests use 500 Hz with equal future `minclock` and `reqclock`, an OID-scoped `query_cs1237_data` handler, and bounded reactor yielding. `reqclock` alone is insufficient because it is a requested transmission deadline rather than a not-before constraint; live testing returned only 40 of 100 requests when `minclock` was omitted. Controlled stationary-extrusion testing later found that three of nine 500 Hz captures missed responses, while one 250 Hz capture returned `363/363`; neither rate is a validated production choice. Missing responses, stale/duplicate conversions, conversion-age uncertainty, timing gaps, and invalid excursions fail quality gates. Optional diagnostic artifacts are written only by an explicit diagnostic mode used during controlled validation, not by the public macro's normal path.
+The ADC remains configured at 1280 SPS. Initial capture requests use 500 Hz with equal future `minclock` and `reqclock`, an OID-scoped `query_cs1237_data` handler, and bounded reactor yielding. `reqclock` alone is insufficient because it is a requested transmission deadline rather than a not-before constraint; live testing returned only 40 of 100 requests when `minclock` was omitted. Controlled stationary-extrusion testing found that three of nine 500 Hz captures missed responses. One 250 Hz capture returned `363/363`; a later 250 Hz pulse returned `351/351` but contained duplicate response identity and left the stock configuration reading `190` instead of `60`. No rate is a validated production choice. Missing responses, duplicate identities, changed post-capture stock state, stale conversions, conversion-age uncertainty, timing gaps, and invalid excursions fail quality gates. Optional diagnostic artifacts are written only by an explicit diagnostic mode used during controlled validation, not by the public macro's normal path.
 
 Alternative: stream samples to an external service for analysis. Rejected because host/network timing would weaken motion alignment and add a runtime dependency to a single-printer calibration command.
 
@@ -103,7 +103,11 @@ No ooze or flush cleanup runs before the first measured pulse. After the final m
 
 ### Select conservatively and fail closed
 
-The analysis uses deceleration undershoot as the primary indication that compensation has become excessive, with transition timing, settling, overshoot, and cycle repeatability as corroborating metrics. A coarse bounded sweep locates the transition region; a finer bounded sweep estimates the last non-excessive K. Exact sweep limits, rates, cycle counts, filters, and thresholds are constants covered by synthetic fixtures and controlled-printer evidence rather than user-facing knobs.
+Each measured cycle retains the planned low/high velocities, positive E acceleration, acceleration and deceleration ramp boundaries, and K value. Analysis validates `ramp_time = (high_velocity - low_velocity) / acceleration` before comparing the baseline-normalized force trace with the resulting ideal E-flow waveform. It does not infer acceleration from load-cell data or treat constant-flow force alone as PA evidence.
+
+The primary objective is independently implemented as three fixed components: transition tracking (`tracking error`, `rise delay`, `fall delay`), excessive compensation (`overshoot`, `undershoot`), and recovery stability (`settling error`, `absolute recovery error`, `plateau slope`). Each component is normalized within the bounded sweep, and the fixed objective weights are covered by deterministic fixtures rather than exposed as operator controls. Signed post-deceleration recovery area is an independent corroborator: positive area indicates residual pressure lag, negative area indicates reversal, and the sweep must bracket one ordered positive-to-negative transition near the objective minimum.
+
+A reportable sweep contains the same K grid and repeated cycles at two distinct validated E accelerations. Each acceleration profile must have one unique interior objective minimum, signed-area bracketing, stable polarity, and repeatable metrics. Both profiles must select the same refined-grid K; acceleration-dependent candidates fail closed. A coarse bounded sweep locates the transition region, and a finer bounded sweep provides the reported grid value.
 
 A candidate is reportable only when all quality gates pass, including:
 
@@ -111,8 +115,10 @@ A candidate is reportable only when all quality gates pass, including:
 - no ADC saturation;
 - sufficient force-response amplitude relative to baseline noise;
 - consistent polarity and response across repeated cycles;
-- a unique transition or cost minimum inside, not at the edge of, the tested range;
-- agreement between the primary undershoot decision and corroborating response metrics within a defined tolerance.
+- complete K coverage at both acceleration profiles;
+- a unique objective minimum inside, not at the edge of, the tested range;
+- one ordered signed recovery-area bracket near that minimum;
+- exact refined-grid candidate agreement between acceleration profiles.
 
 The normal success response includes `PA_VALUE=<decimal>`, the calibration temperature, the nozzle diameter, and `PERSISTED=0`. The command does not prescribe, inspect, or act on how the user uses the reported value. Inconclusive runs report a reason code and no value token.
 
@@ -132,7 +138,7 @@ The optimized macro/config section remains under `installer/klipper/tltg-optimiz
 
 ### Implement analysis independently
 
-The response metrics and state machine are implemented from the force-response behavior and local test fixtures. Code is not copied from AGPL-licensed PrusaPATuner. Any external implementation consulted during development is recorded in dependency or provenance documentation with its license.
+The response metrics, three-component objective, signed-area corroboration, acceleration-profile agreement gates, and state machine are implemented independently from the behavior contract and locally authored fixtures. No source, formulas, weights, comments, or test vectors are copied from AGPL-licensed PrusaPATuner. External implementations consulted during development are recorded with commit and license provenance.
 
 ## Risks / Trade-offs
 
