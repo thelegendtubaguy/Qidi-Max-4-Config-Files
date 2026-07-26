@@ -16,10 +16,12 @@ from .compatibility import CompatibilityValidationError, allowed_target_tuples_f
 from .ensure_lines import has_active_line, remove_active_line
 from .errors import InstalledPackageValidationError, OperationCancelled
 from .firmware import detect_firmware_version_best_effort
-from .interaction import confirm_yes, maybe_restart_klipper
+from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
 from .fs_atomic import atomic_write_text
 from .mirror import detect_uninstall_managed_tree_drift, remove_tree
 from .path_safety import ensure_uninstall_paths_safe
+from .source_patches import restore_source_patch, validate_source_state
+from .process_restart import read_printer_info, write_restart_marker
 from .models import (
     DriftRecord,
     EnsureLineSpec,
@@ -126,6 +128,12 @@ def run_uninstall(
         raise InstalledPackageValidationError()
 
     assert state is not None
+    validate_source_state(
+        state,
+        manifest.install.source_patches,
+        upgrade_sources=compatibility,
+        expected_firmware=current_firmware,
+    )
 
     reporter.status(messages.PERFORMING_UNINSTALL_PREFLIGHT_CHECKS)
     run_uninstall_preflight(
@@ -187,6 +195,15 @@ def run_uninstall(
             printer_data_root=paths.printer_data_root,
             source_directory=manifest.backup.source_directory,
             backup_label=backup_label,
+            external_files=tuple(
+                (
+                    entry.id,
+                    entry.destination,
+                    paths.managed_klipper_root / entry.destination,
+                )
+                for entry in state.source_patches
+            ),
+            external_firmware=state.runtime_firmware,
         )
         pruned_backups = prune_installer_backups(
             paths.printer_data_root,
@@ -309,12 +326,32 @@ def _execute_uninstall(
         touched_files.update(paths.printer_data_root / entry.file for entry in state.patch_ledger)
         for path in touched_files:
             journal.track_file(path)
+        for entry in state.source_patches:
+            journal.track_file(paths.managed_klipper_root / entry.destination)
         journal.track_tree(managed_tree_root)
         reporter.debug(
             event="uninstall.rollback.tracking",
             tracked_files=len(touched_files),
             tracked_trees=1,
         )
+
+        source_restores = tuple(entry for entry in state.source_patches if (paths.managed_klipper_root / entry.destination).is_file() and (paths.managed_klipper_root / entry.destination).read_bytes() != entry.original_bytes)
+        if source_restores:
+            pid, _ = read_printer_info(paths.moonraker_url, urlopen=urlopen)
+            journal.track_file(paths.restart_marker_path)
+            journal.note_write()
+            write_restart_marker(
+                paths,
+                tuple(
+                    (entry.id, entry.destination, entry.original_sha256)
+                    for entry in source_restores
+                ),
+                operation="uninstall",
+                process_id=pid,
+            )
+            for entry in source_restores:
+                journal.note_write()
+                restore_source_patch(paths=paths, entry=entry)
 
         for entry in state.patch_ledger:
             path = paths.printer_data_root / entry.file
@@ -410,12 +447,21 @@ def _execute_uninstall(
             )
         except AutoUpdateError as exc:
             reporter.line(f"{messages.AUTO_UPDATE_DISABLE_FAILED} {exc.message}")
-    maybe_restart_klipper(
-        reporter=reporter,
-        input_stream=input_stream,
-        moonraker_query_url=paths.moonraker_url,
-        urlopen=urlopen,
-    )
+    if paths.restart_marker_path.exists():
+        maybe_restart_pending_service(
+            paths=paths,
+            allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+            reporter=reporter,
+            input_stream=input_stream,
+            urlopen=urlopen,
+        )
+    else:
+        maybe_restart_klipper(
+            reporter=reporter,
+            input_stream=input_stream,
+            moonraker_query_url=paths.moonraker_url,
+            urlopen=urlopen,
+        )
     reporter.debug(
         event="uninstall.complete",
         dry_run=False,

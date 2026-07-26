@@ -132,9 +132,15 @@ def main(
                     mode=args.mode,
                     lock_path=paths.lock_path,
                 )
+                manifest = load_manifest(paths.installer_root / "package.yaml")
                 removed = clear_recovery_sentinel(
                     paths.recovery_sentinel_path,
                     printer_data_root=paths.printer_data_root,
+                    external_root=paths.managed_klipper_root,
+                    allowed_external_entries={
+                        patch.id: patch.destination
+                        for patch in manifest.install.source_patches
+                    },
                 )
                 reporter.emit_clear_recovery_sentinel(removed)
                 reporter.debug(
@@ -352,6 +358,11 @@ def resolve_runtime_paths(*, bundle_root: Path, environ: dict[str, str]) -> Runt
         lock_path=printer_data_root / ".tltg_optimized_installer.lock",
         recovery_sentinel_path=printer_data_root / ".tltg_optimized_recovery_required",
         backup_root=printer_data_root,
+        klipper_root=(
+            Path(environ["TLTG_OPTIMIZED_KLIPPER_ROOT"])
+            if "TLTG_OPTIMIZED_KLIPPER_ROOT" in environ
+            else None
+        ),
     )
 
 

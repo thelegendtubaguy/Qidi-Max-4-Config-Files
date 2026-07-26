@@ -18,6 +18,8 @@ from . import messages, safety
 from .errors import ActivePrintError, InstallerError, PrinterStateError
 from .fs_atomic import atomic_write_text
 from .models import RuntimePaths
+from .process_restart import ProcessRestartError, restart_pending
+from .manifest import ManifestValidationError, load_manifest
 from .naming import BUNDLE_ROOT_NAME
 from .sudo import (
     PUBLIC_DEFAULT_SUDO_PASSWORD,
@@ -236,6 +238,18 @@ def run_auto_update_check(
     run: RunFn = subprocess.run,
 ) -> AutoUpdateRunResult:
     env = os.environ if environ is None else environ
+    if paths.restart_marker_path.exists():
+        try:
+            manifest = load_manifest(paths.installer_root / "package.yaml")
+            safety.ensure_printer_idle(paths.moonraker_url, urlopen=urlopen)
+            restart_pending(
+                paths,
+                allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+                urlopen=urlopen,
+            )
+            reporter.line("Klipper service process restarted and verified.")
+        except (ActivePrintError, PrinterStateError, ProcessRestartError, ManifestValidationError) as exc:
+            raise AutoUpdateError("Pending Klipper process activation could not be verified.") from exc
     try:
         checksum = fetch_latest_checksum(_checksum_url(env), urlopen=urlopen)
     except AutoUpdateError:

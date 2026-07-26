@@ -29,3 +29,5 @@ Slicer start G-code passes `FIRSTLAYERTEMP=[nozzle_temperature_initial_layer]` a
 Slicer start G-code does not call `SET_INPUT_SHAPER`; Klipper uses the saved `shaper_type_x` and `shaper_type_y` calibration state from `config/printer.cfg`.
 
 `docs/gcode-paths/start-print.path.json` records branch-level invariants only; exact command order comes from `orcaslicer_gcode/start.gcode`, `qidistudio_gcode/start.gcode`, and `installer/klipper/tltg-optimized-macros/*.cfg`.
+
+`installer/klipper/qidi/homing.py` changes Klipper internal X/Y timing without changing a contracted slicer or macro start-path branch; generated start-print views therefore remain unchanged.

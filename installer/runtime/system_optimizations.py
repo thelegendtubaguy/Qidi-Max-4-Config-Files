@@ -1196,6 +1196,7 @@ def _replace_system_ledger(state: InstalledState, ledger: dict[str, Any]) -> Ins
         installed_at=state.installed_at,
         managed_tree=state.managed_tree,
         patch_ledger=state.patch_ledger,
+        source_patches=state.source_patches,
         system_ledger=ledger,
     )
 

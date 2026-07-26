@@ -28,6 +28,7 @@ ALLOWED_FILES = [
 ALLOWED_DIRECTORIES = [
     "installer/runtime",
     "installer/klipper/tltg-optimized-macros",
+    "installer/klipper/qidi",
     "installer/stock",
     "installer/system",
 ]
@@ -46,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         REPO_ROOT / "installer/supported_upgrade_sources.yaml"
     )
     validate_manifest_compatibility(manifest, compatibility)
+    validate_source_payloads(manifest)
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -105,6 +107,21 @@ def main(argv: list[str] | None = None) -> int:
         print(traceable_archive)
     return 0
 
+
+
+def validate_source_payloads(manifest) -> None:
+    for patch in manifest.install.source_patches:
+        payload = REPO_ROOT / "installer" / patch.source
+        if payload.is_symlink() or not payload.is_file():
+            raise ValueError(f"Source patch payload is not a regular file: {payload}")
+        value = payload.read_bytes()
+        compile(value, str(payload), "exec")
+        digest = hashlib.sha256(value).hexdigest()
+        for variant in patch.variants:
+            if digest != variant.desired_sha256:
+                raise ValueError(
+                    f"Source patch payload hash does not match {patch.id} for {variant.firmware}"
+                )
 
 
 def bundle_names(*, channel: str, package_version: str, build_id: str | None) -> tuple[str, str]:

@@ -3,14 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from .backup import (
     BackupArchiveError,
     describe_snapshot_difference,
     load_backup_snapshot,
+    load_external_backup_entries,
+    package_version_from_backup_label,
+    requires_external_backup_manifest,
     snapshot_runtime_tree,
 )
-from .errors import RecoverySentinelClearError, RollbackFailedError
+from .errors import PathSafetyError, RecoverySentinelClearError, RollbackFailedError
 from .fs_atomic import atomic_delete, atomic_write_bytes, atomic_write_text, fsync_directory
+from .path_safety import ensure_external_path_has_no_symlink_components
 
 
 RECOVERY_CLEAR_PREFIX = (
@@ -209,6 +215,8 @@ def clear_recovery_sentinel(
     *,
     printer_data_root: Path,
     source_directory: str = "config",
+    external_root: Path | None = None,
+    allowed_external_entries: dict[str, str] | None = None,
 ) -> bool:
     if not path.exists():
         return False
@@ -236,9 +244,53 @@ def clear_recovery_sentinel(
         raise RecoverySentinelClearError(
             f"{RECOVERY_CLEAR_PREFIX} {describe_snapshot_difference(runtime_snapshot, backup_snapshot)}"
         )
+    if external_root is not None and allowed_external_entries is not None:
+        try:
+            require_manifest = requires_external_backup_manifest(
+                package_version=package_version_from_backup_label(
+                    record.backup_label or record.backup_zip_path.stem
+                ),
+                state_declares_source_patches=_snapshot_declares_source_patches(
+                    backup_snapshot
+                ),
+            )
+            _, entries = load_external_backup_entries(
+                backup_zip_path=record.backup_zip_path,
+                allowed_entries=allowed_external_entries,
+                require_manifest=require_manifest,
+            )
+        except BackupArchiveError as exc:
+            raise RecoverySentinelClearError(f"{RECOVERY_CLEAR_PREFIX} {exc}") from exc
+        for _, destination, value, _ in entries:
+            live = external_root / destination
+            try:
+                ensure_external_path_has_no_symlink_components(
+                    root=external_root, target=live
+                )
+            except PathSafetyError as exc:
+                raise RecoverySentinelClearError(
+                    f"{RECOVERY_CLEAR_PREFIX} {exc}"
+                ) from exc
+            if not live.is_file() or live.is_symlink() or live.read_bytes() != value:
+                raise RecoverySentinelClearError(
+                    f"{RECOVERY_CLEAR_PREFIX} External source does not match backup: {destination}"
+                )
     atomic_delete(path)
     return True
 
+
+
+def _snapshot_declares_source_patches(snapshot: dict[str, bytes]) -> bool:
+    state = snapshot.get("config/tltg_optimized_state.yaml")
+    if state is None:
+        return False
+    try:
+        raw = yaml.safe_load(state)
+    except yaml.YAMLError as exc:
+        raise RecoverySentinelClearError(
+            f"{RECOVERY_CLEAR_PREFIX} Archived installed state is malformed."
+        ) from exc
+    return isinstance(raw, dict) and "source_patches" in raw
 
 
 def load_recovery_sentinel(path: Path) -> RecoverySentinelRecord:
