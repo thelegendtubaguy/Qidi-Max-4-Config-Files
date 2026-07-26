@@ -1,0 +1,586 @@
+{
+  "schema_version": 1,
+  "status": "controlled_exploration_not_production_validation",
+  "environment": {
+    "firmware": "01.01.06.04",
+    "nozzle_mm": 0.4,
+    "material": "PLA",
+    "target_celsius": 215,
+    "loaded_source": "QIDI Box 2 slot 0 (global slot4)",
+    "printer_state": "standby",
+    "production_package_installed_for_entry_checks": "26.07.26.2"
+  },
+  "safety": {
+    "full_homing_before_heating": true,
+    "absolute_z_before_trash_park_mm": 200,
+    "trash_position_xyz": [
+      135.0,
+      403.0,
+      200.0
+    ],
+    "maximum_measured_pulses_between_clear_flush": 2,
+    "final_cleanup": [
+      "CLEAR_OOZE",
+      "CLEAR_FLUSH"
+    ],
+    "heater_target_after_test_celsius": 0,
+    "qidi_box_source_preserved": true
+  },
+  "idle_captures": [
+    {
+      "label": "unheated idle",
+      "requested_responses": 500,
+      "received_responses": 500,
+      "capture_complete": true,
+      "capture_issues": [],
+      "median_counts": -305311.0,
+      "minimum_counts": -305616,
+      "maximum_counts": -3,
+      "near_zero_count": 1
+    },
+    {
+      "label": "215 C idle",
+      "requested_responses": 500,
+      "received_responses": 500,
+      "capture_complete": true,
+      "capture_issues": [],
+      "median_counts": -275575.5,
+      "minimum_counts": -793729,
+      "maximum_counts": -33,
+      "near_zero_count": 2
+    }
+  ],
+  "direct_trapq_captures": [
+    {
+      "capture": "pa-04-pla215-direct-k0032-low05-high20.json",
+      "k": 0.032,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 2.0,
+        "accel_filament_mm_s2": 10.0,
+        "high_time_s": 0.4,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 1.2750000000000001
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 700,
+      "received_responses": 700,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 5.4731669997636345,
+      "max_command_round_trip_ms": 5.215874999976222,
+      "unique_values": 650,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 7,
+      "exploratory_outlier_values": [
+        -572225,
+        -408961,
+        -261,
+        -33,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -270468,
+        "lead_in": -283294.5,
+        "early_high": -295117.0,
+        "high_plateau": -292410.0,
+        "early_fall": -286547,
+        "settled_after": -278613
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-k0000-low05-high20.json",
+      "k": 0.0,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 2.0,
+        "accel_filament_mm_s2": 10.0,
+        "high_time_s": 0.4,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 1.2749999999999997
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 700,
+      "received_responses": 697,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 15.096291000190831,
+      "max_command_round_trip_ms": 14.237708000109706,
+      "unique_values": 630,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 5,
+      "exploratory_outlier_values": [
+        -1049601,
+        -765377,
+        -33,
+        -5,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -268121.5,
+        "lead_in": -278037.5,
+        "early_high": -280712,
+        "high_plateau": -279587,
+        "early_fall": -276164.5,
+        "settled_after": -270570
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-k0080-low05-high20.json",
+      "k": 0.08,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 2.0,
+        "accel_filament_mm_s2": 10.0,
+        "high_time_s": 0.4,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 1.2749999999999995
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 701,
+      "received_responses": 701,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 4.212916000142286,
+      "max_command_round_trip_ms": 3.185708000273735,
+      "unique_values": 641,
+      "max_identical_run": 4,
+      "exploratory_outlier_count": 6,
+      "exploratory_outlier_values": [
+        -1241409,
+        -590465,
+        -33,
+        -17,
+        -9,
+        -3
+      ],
+      "exploratory_window_medians": {
+        "baseline": -271292,
+        "lead_in": -278588,
+        "early_high": -282199.5,
+        "high_plateau": -280617,
+        "early_fall": -275259,
+        "settled_after": -268504
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-k0032-repeat2.json",
+      "k": 0.032,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 2.0,
+        "accel_filament_mm_s2": 10.0,
+        "high_time_s": 0.4,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 1.2749999999999995
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 701,
+      "received_responses": 701,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 6.290542000442656,
+      "max_command_round_trip_ms": 5.761583000094106,
+      "unique_values": 637,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 9,
+      "exploratory_outlier_values": [
+        -1323585,
+        -670081,
+        -491521,
+        -131,
+        -66,
+        -17,
+        -9,
+        -3
+      ],
+      "exploratory_window_medians": {
+        "baseline": -270063,
+        "lead_in": -283156.5,
+        "early_high": -287139.0,
+        "high_plateau": -284017.5,
+        "early_fall": -279487.0,
+        "settled_after": -271893.5
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-k0080-repeat2.json",
+      "k": 0.08,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 2.0,
+        "accel_filament_mm_s2": 10.0,
+        "high_time_s": 0.4,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 1.2749999999999995
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 701,
+      "received_responses": 700,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 7.400041999972018,
+      "max_command_round_trip_ms": 6.668958999853203,
+      "unique_values": 643,
+      "max_identical_run": 4,
+      "exploratory_outlier_count": 9,
+      "exploratory_outlier_values": [
+        -724481,
+        -703041,
+        -66,
+        -17,
+        -9,
+        -3,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -273529.5,
+        "lead_in": -281565,
+        "early_high": -285986,
+        "high_plateau": -283488.0,
+        "early_fall": -279760,
+        "settled_after": -271984.5
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-high30-k0000.json",
+      "k": 0.0,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 3.0,
+        "accel_filament_mm_s2": 20.0,
+        "high_time_s": 0.5,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 2.0375
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 726,
+      "received_responses": 726,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 4.898916999991343,
+      "max_command_round_trip_ms": 3.921458000149869,
+      "unique_values": 681,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 6,
+      "exploratory_outlier_values": [
+        -2353601,
+        -5,
+        -3,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -281708,
+        "lead_in": -290706,
+        "early_high": -301968.0,
+        "high_plateau": -291509,
+        "early_fall": -284297.0,
+        "settled_after": -279352
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-high30-k0080.json",
+      "k": 0.08,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 3.0,
+        "accel_filament_mm_s2": 20.0,
+        "high_time_s": 0.5,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 2.0375
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 726,
+      "received_responses": 724,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 10.896708000018407,
+      "max_command_round_trip_ms": 3.5618330002762377,
+      "unique_values": 679,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 8,
+      "exploratory_outlier_values": [
+        -1725057,
+        -1658945,
+        -131,
+        -17,
+        -9,
+        -5,
+        -3,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -279103.5,
+        "lead_in": -286516.5,
+        "early_high": -293685,
+        "high_plateau": -289827.0,
+        "early_fall": -286149,
+        "settled_after": -281545
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-high30-k0032.json",
+      "k": 0.032,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 3.0,
+        "accel_filament_mm_s2": 20.0,
+        "high_time_s": 0.5,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 2.0374999999999996
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 726,
+      "received_responses": 726,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 5.3148329998293775,
+      "max_command_round_trip_ms": 2.6250000000800355,
+      "unique_values": 669,
+      "max_identical_run": 2,
+      "exploratory_outlier_count": 3,
+      "exploratory_outlier_values": [
+        -17,
+        -5,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -273835,
+        "lead_in": -282623,
+        "early_high": -290931.5,
+        "high_plateau": -284865,
+        "early_fall": -281866.5,
+        "settled_after": -275909
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-high30-k0080-repeat2.json",
+      "k": 0.08,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 3.0,
+        "accel_filament_mm_s2": 20.0,
+        "high_time_s": 0.5,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 2.0375000000000005
+      },
+      "capture_rate_hz": 500,
+      "requested_responses": 726,
+      "received_responses": 726,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 5.484874999638123,
+      "max_command_round_trip_ms": 4.943165999975463,
+      "unique_values": 672,
+      "max_identical_run": 3,
+      "exploratory_outlier_count": 3,
+      "exploratory_outlier_values": [
+        -33,
+        -5,
+        -2
+      ],
+      "exploratory_window_medians": {
+        "baseline": -273979,
+        "lead_in": -280721.0,
+        "early_high": -288833,
+        "high_plateau": -293671.5,
+        "early_fall": -287515,
+        "settled_after": -275657.5
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    },
+    {
+      "capture": "pa-04-pla215-direct-high30-k0032-250hz.json",
+      "k": 0.032,
+      "flow": {
+        "low_filament_mm_s": 0.5,
+        "high_filament_mm_s": 3.0,
+        "accel_filament_mm_s2": 20.0,
+        "high_time_s": 0.5,
+        "lead_time_s": 0.1,
+        "extruded_filament_mm": 2.0375000000000014
+      },
+      "capture_rate_hz": 250,
+      "requested_responses": 363,
+      "received_responses": 363,
+      "rejected_by_runtime": 0,
+      "max_sent_interval_ms": 6.770167000013316,
+      "max_command_round_trip_ms": 4.8822080002537405,
+      "unique_values": 343,
+      "max_identical_run": 4,
+      "exploratory_outlier_count": 2,
+      "exploratory_outlier_values": [
+        -131,
+        -33
+      ],
+      "exploratory_window_medians": {
+        "baseline": -272545.0,
+        "lead_in": -279605,
+        "early_high": -286418,
+        "high_plateau": -286615.0,
+        "early_fall": -310336.0,
+        "settled_after": -278788.0
+      },
+      "start_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "end_xyz": [
+        135.0,
+        403.0,
+        200.0
+      ],
+      "original_pa": 0.032,
+      "restored_pa": 0.032,
+      "original_smooth_time": 0.03,
+      "restored_smooth_time": 0.03,
+      "failure": null
+    }
+  ],
+  "runtime_checks": {
+    "toolhead_xyz_changed_during_measured_pulse": false,
+    "pressure_advance_and_smooth_time_restored_after_each_pulse": true,
+    "ordinary_relative_e_move_after_direct_pulses_succeeded": true,
+    "stock_full_g28_after_direct_pulses_succeeded": true,
+    "toolhead_filament_switch_remained_detected": true,
+    "box_slot4_remained_loaded_and_synchronized": true,
+    "temporary_hardware_spike_module_removed_after_test": true
+  },
+  "findings": [
+    "The first live production preflight exposed that pressure advance belongs to PrinterExtruder.extruder_stepper on this runtime; direct attributes on PrinterExtruder are unsupported.",
+    "Stationary direct-trapq extrusion generated filament motion while recorded X, Y, and Z remained unchanged.",
+    "The load-cell response changed during low/high/low extrusion, so the signal is measurable at the tested flows.",
+    "Several 500 Hz captures lost responses or had command intervals above 5 ms while trapq work was active; 500 Hz is not yet a validated under-load default.",
+    "The single 250 Hz under-load capture returned every requested response, but one cycle is insufficient to validate a production rate.",
+    "Near-zero and large isolated excursions persisted during heated and extrusion captures.",
+    "Repeated K responses were not repeatable enough to classify a candidate; no PA value was reported.",
+    "Receive timing and these exploratory outlier windows do not establish ADC conversion freshness or a hardware-safe invalid-read classifier."
+  ],
+  "analysis_note": "exploratory_outlier_count and exploratory_window_medians use a non-production neighbor heuristic only to summarize signal shape; they are not accepted quality gates."
+}

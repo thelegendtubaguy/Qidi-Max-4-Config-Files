@@ -450,11 +450,25 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         adapter.validate_plan(_validated_nozzle_plan(), 240.0)
         self.assertIs(adapter.toolhead, toolhead)
         self.assertIs(adapter.extruder, extruder)
+        self.assertIs(adapter.extruder_stepper, extruder.extruder_stepper)
 
         with self.assertRaisesRegex(pa.CalibrationError, "UNSUPPORTED_TRAPQ_RUNTIME"):
             pa.QidiDirectTrapqAdapter(
                 printer,
                 hash_provider=lambda unused_toolhead, unused_extruder: {},
+            )
+
+    def test_direct_trapq_adapter_requires_active_extruder_stepper_trapq(self):
+        printer, unused_toolhead, extruder = _trapq_printer()
+        extruder.extruder_stepper.stepper.trapq = object()
+        with self.assertRaisesRegex(
+            pa.CalibrationError, "UNSUPPORTED_TRAPQ_INTERFACE"
+        ):
+            pa.QidiDirectTrapqAdapter(
+                printer,
+                hash_provider=lambda unused_toolhead, unused_extruder: dict(
+                    pa.EXPECTED_TRAPQ_RUNTIME_HASHES
+                ),
             )
 
     def test_runtime_trapq_hash_resolver_reads_each_pinned_artifact(self):
@@ -1058,16 +1072,33 @@ class _FakeTrapqHeater:
     can_extrude = False
 
 
+class _FakeStepperKinematics:
+    def __init__(self, trapq):
+        self.trapq = trapq
+
+    def get_trapq(self):
+        return self.trapq
+
+
+class _FakeTrapqExtruderStepper:
+    def __init__(self, trapq):
+        self.pressure_advance = 0.03
+        self.pressure_advance_smooth_time = 0.04
+        self.stepper = _FakeStepperKinematics(trapq)
+
+    def _set_pressure_advance(self, pressure_advance, smooth_time):
+        pass
+
+
 class _FakeTrapqExtruder:
     def __init__(self):
         self.last_position = 7.0
-        self.pressure_advance = 0.03
-        self.pressure_advance_smooth_time = 0.04
         self.max_e_velocity = 20.0
         self.max_e_accel = 100.0
         self.max_e_dist = 50.0
         self.heater = _FakeTrapqHeater()
         self.trapq = object()
+        self.extruder_stepper = _FakeTrapqExtruderStepper(self.trapq)
 
     def get_name(self):
         return "extruder"
@@ -1079,9 +1110,6 @@ class _FakeTrapqExtruder:
         pass
 
     def trapq_finalize_moves(self, *args):
-        pass
-
-    def _set_pressure_advance(self, pressure_advance, smooth_time):
         pass
 
 

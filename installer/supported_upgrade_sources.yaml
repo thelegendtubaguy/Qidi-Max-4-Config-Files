@@ -1127,3 +1127,18 @@ versions:
         firmware: "01.01.06.04"
         original_sha256: "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0"
         desired_sha256: "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+
+  "26.07.26.3":
+    inherits: "26.07.26.2"
+
+    source_patches:
+      - id: "qidi_homing"
+        destination: "klippy/extras/homing.py"
+        firmware: "01.01.06.03"
+        original_sha256: "89428b465b7f3d62bd8b65b3155b8aa8e93cd917f59779e40a246b5d89ff8d71"
+        desired_sha256: "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+      - id: "qidi_homing"
+        destination: "klippy/extras/homing.py"
+        firmware: "01.01.06.04"
+        original_sha256: "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0"
+        desired_sha256: "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"

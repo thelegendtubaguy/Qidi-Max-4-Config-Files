@@ -17,8 +17,10 @@
 - **Runtime-confirmed:** a one-second 1000 Hz run returned `994/1000` responses and did not meet full-coverage requirements.
 - **Runtime-confirmed:** direct captures included approximately one percent large transient excursions, including values near `-3`, `-262145`, and `-2196737`.
 - **Unresolved:** response cadence does not prove ADC conversion freshness or establish conversion time relative to Klipper print time.
-- **Unresolved:** direct-read coverage, ordering, invalid-excursion classification, and saturation behavior during stationary extruder trapq work require controlled hardware validation.
-- **Unresolved:** stock probing behavior must be checked after concurrent capture and extrusion tests before calibration acquisition is enabled.
+- **Runtime-confirmed:** with stationary direct-extruder trapq work active, six of nine 500 Hz captures returned every request; the other three missed one to three responses and maximum send intervals reached `15.096 ms`.
+- **Runtime-confirmed:** one 250 Hz stationary direct-trapq capture returned `363/363` responses; one run does not establish a production capture rate.
+- **Runtime-confirmed:** near-zero and large isolated excursions remained present during heated and stationary-extrusion captures.
+- **Unresolved:** direct-read conversion freshness, force-safe invalid-excursion classification, saturation behavior, and a production under-load request rate remain unproven.
 
 Sanitized idle cadence evidence is stored in `openspec/changes/add-load-cell-pa-calibration/evidence/direct-read-cadence.json`. Host, MCU, and compiled-artifact hashes are recorded in `openspec/changes/add-load-cell-pa-calibration/reverse-engineering.md`.
 
@@ -27,7 +29,11 @@ Sanitized idle cadence evidence is stored in `openspec/changes/add-load-cell-pa-
 - **Static-recovered:** installed QIDI `extruder.py` queues extruder trapq entries with independent `axis_r_e` and `can_pressure_advance` fields.
 - **Static-recovered:** normal E-only G-code and `toolhead.manual_move()` do not mark extrusion as pressure-advance eligible.
 - **Static-recovered:** direct `TrapqMove.append()` can represent E-only movement with `axis_r_e=1` and `can_pressure_advance=1` without generating X, Y, or Z movement.
-- **Unresolved:** direct trapq injection bypasses `PrinterExtruder.check_move()` and has not been physically validated for stationary pressure-advance extrusion, nominal-E bookkeeping, cancellation, or cleanup on the Max 4.
+- **Runtime-confirmed:** QIDI stores active pressure advance and `_set_pressure_advance()` on `PrinterExtruder.extruder_stepper`; its physical stepper trapq matched the active `PrinterExtruder` trapq.
+- **Runtime-confirmed:** bounded direct-trapq pulses at `(135, 403, 200)` extruded PLA while recorded X, Y, and Z remained unchanged; PA `0.032` and smooth time `0.03` were restored after every pulse.
+- **Runtime-confirmed:** an ordinary relative E move succeeded after direct pulses, and full `G28` probing succeeded after final cleanup.
+- **Runtime-confirmed:** measured load-cell counts changed during `0.5` to `2.0` or `3.0 mm/s` filament-flow transitions, but repeated responses at K values `0`, `0.032`, and `0.08` did not support a repeatable candidate.
+- **Unresolved:** cancellation, shutdown during generated steps, production queue ownership, and candidate agreement with printed calibration remain unvalidated.
 
 ## Filament and nozzle state
 

@@ -81,7 +81,7 @@ The Python extra is divided into four small units:
 3. A pure analysis module normalizes cycle baselines and computes transition delay, rise/fall response, overshoot, deceleration undershoot, settling, and repeatability.
 4. A printer-facing state machine enforces preconditions, queues motion, restores state, and emits results.
 
-The ADC remains configured at 1280 SPS while capture requests direct reads at 500 Hz. The host queues requests with equal future `minclock` and `reqclock`, receives responses asynchronously through an OID-scoped `query_cs1237_data` handler, and yields to the Klipper reactor during the bounded capture window. `reqclock` alone is insufficient because it is a requested transmission deadline rather than a not-before constraint; live testing returned only 40 of 100 requests when `minclock` was omitted. The validated result is an idle host-response cadence, not proof that every response represents a fresh ADC conversion or that receive time equals conversion time. Missing responses, stale/duplicate conversions, conversion-age uncertainty, timing gaps, and invalid excursions fail quality gates. Optional diagnostic artifacts are written only by an explicit diagnostic mode used during controlled validation, not by the public macro's normal path.
+The ADC remains configured at 1280 SPS. Initial capture requests use 500 Hz with equal future `minclock` and `reqclock`, an OID-scoped `query_cs1237_data` handler, and bounded reactor yielding. `reqclock` alone is insufficient because it is a requested transmission deadline rather than a not-before constraint; live testing returned only 40 of 100 requests when `minclock` was omitted. Controlled stationary-extrusion testing later found that three of nine 500 Hz captures missed responses, while one 250 Hz capture returned `363/363`; neither rate is a validated production choice. Missing responses, stale/duplicate conversions, conversion-age uncertainty, timing gaps, and invalid excursions fail quality gates. Optional diagnostic artifacts are written only by an explicit diagnostic mode used during controlled validation, not by the public macro's normal path.
 
 Alternative: stream samples to an external service for analysis. Rejected because host/network timing would weaken motion alignment and add a runtime dependency to a single-printer calibration command.
 
@@ -143,7 +143,7 @@ The response metrics and state machine are implemented from the force-response b
 - **Waste extrusion accumulates while the flap is closed** → Run `CLEAR_FLUSH` after no more than two measured pulses, cap total extrusion, and run final `CLEAR_OOZE` plus `CLEAR_FLUSH` cleanup.
 - **QIDI screen and Klipper nozzle sizes diverge** → Require explicit `NOZZLE` and report it with the result rather than selecting either stored value implicitly.
 - **The optimum force response does not match the best printed PA** → Label output as a candidate, never persist it, compare against conventional printed tests across representative materials, and tune gates from recorded evidence.
-- **Scheduled direct reads may load the constrained printer host or return invalid excursions** → Default to the validated 500 Hz rate, bound duration and queued command count, yield to the reactor, avoid raw console logging, and reject captures with insufficient timing coverage or invalid-read contamination.
+- **Scheduled direct reads may load the constrained printer host or return invalid excursions** → Use no more than 500 Hz, select the production rate only from repeated under-load evidence, bound duration and queued command count, yield to the reactor, avoid raw console logging, and reject captures with incomplete timing coverage or invalid-read contamination.
 - **Cleanup fails after a partial start** → Make acquisition stop and state restoration idempotent, register shutdown/cancel handling, and test every state-machine transition with injected failures.
 - **Installer mutation outside `config/` complicates rollback** → Track the extra as a hashed managed external file with preimage restoration and include installer-core integration tests.
 
@@ -159,7 +159,7 @@ Rollback removes the optimized macro/config section, removes the exact managed P
 
 ## Open Questions
 
-- Does the validated 500 Hz direct-response cadence remain stable while stationary extruder trapq work is active?
+- Which request rate at or below 500 Hz provides repeatable complete coverage while stationary extruder trapq work is active?
 - What bounds the age of the cached ADC conversion returned by `query_cs1237_read`, and what conversion-time error can be assigned relative to Klipper print time?
 - Which raw/timing invariant distinguishes invalid direct reads from real force transitions without weakening fail-closed behavior?
 - What low/high flow rates, segment duration, K bounds, and refinement step produce clean transitions without excessive purge volume on the Max 4 hotend?

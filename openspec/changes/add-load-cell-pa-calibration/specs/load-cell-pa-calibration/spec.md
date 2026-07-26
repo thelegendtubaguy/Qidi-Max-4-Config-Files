@@ -159,7 +159,7 @@ The system SHALL collect bounded CS1237 direct-read responses through a validate
 
 #### Scenario: Raw processing respects host limits
 - **WHEN** the validated acquisition path schedules direct reads against the 1280 SPS ADC
-- **THEN** the system defaults to the validated 500 Hz request rate and bounds query duration, queued command count, memory, and reactor occupancy without per-sample console output
+- **THEN** the system uses a repeat-validated under-load request rate no greater than 500 Hz and bounds query duration, queued command count, memory, and reactor occupancy without per-sample console output
 - **AND** normal calibration does not persist raw sample files
 
 #### Scenario: Invalid direct-read excursions are detected

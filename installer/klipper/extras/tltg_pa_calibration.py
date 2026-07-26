@@ -923,6 +923,7 @@ class QidiDirectTrapqAdapter:
         if not callable(get_extruder):
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
         self.extruder = get_extruder()
+        self.extruder_stepper = getattr(self.extruder, "extruder_stepper", None)
         required_toolhead = (
             "commanded_pos",
             "e_enable",
@@ -934,8 +935,6 @@ class QidiDirectTrapqAdapter:
         )
         required_extruder = (
             "last_position",
-            "pressure_advance",
-            "pressure_advance_smooth_time",
             "max_e_velocity",
             "max_e_accel",
             "max_e_dist",
@@ -944,6 +943,11 @@ class QidiDirectTrapqAdapter:
             "get_trapq",
             "trapq_append",
             "trapq_finalize_moves",
+        )
+        required_extruder_stepper = (
+            "pressure_advance",
+            "pressure_advance_smooth_time",
+            "stepper",
             "_set_pressure_advance",
         )
         if self.toolhead is None or any(
@@ -952,6 +956,11 @@ class QidiDirectTrapqAdapter:
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
         if self.extruder is None or any(
             not hasattr(self.extruder, name) for name in required_extruder
+        ):
+            raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
+        if self.extruder_stepper is None or any(
+            not hasattr(self.extruder_stepper, name)
+            for name in required_extruder_stepper
         ):
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
         if any(
@@ -968,11 +977,17 @@ class QidiDirectTrapqAdapter:
                 "get_trapq",
                 "trapq_append",
                 "trapq_finalize_moves",
-                "_set_pressure_advance",
             )
-        ):
+        ) or not callable(self.extruder_stepper._set_pressure_advance):
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
-        if self.extruder.get_name() != "extruder":
+        get_stepper_trapq = getattr(
+            self.extruder_stepper.stepper, "get_trapq", None
+        )
+        if (
+            self.extruder.get_name() != "extruder"
+            or not callable(get_stepper_trapq)
+            or get_stepper_trapq() is not self.extruder.get_trapq()
+        ):
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
         provider = hash_provider or _runtime_trapq_hashes
         if provider(self.toolhead, self.extruder) != EXPECTED_TRAPQ_RUNTIME_HASHES:
@@ -1004,8 +1019,8 @@ class QidiDirectTrapqAdapter:
             self.extruder.max_e_velocity,
             self.extruder.max_e_accel,
             self.extruder.max_e_dist,
-            self.extruder.pressure_advance,
-            self.extruder.pressure_advance_smooth_time,
+            self.extruder_stepper.pressure_advance,
+            self.extruder_stepper.pressure_advance_smooth_time,
         )
         if any(not _finite_number(value) for value in limits):
             raise CalibrationError("UNSUPPORTED_TRAPQ_INTERFACE")
@@ -1017,7 +1032,7 @@ class QidiDirectTrapqAdapter:
             or plan.acceleration > self.extruder.max_e_accel
             or plan.max_pulse_distance > self.extruder.max_e_dist
             or plan.lead_time
-            < self.extruder.pressure_advance_smooth_time * 0.5
+            < self.extruder_stepper.pressure_advance_smooth_time * 0.5
         ):
             raise CalibrationError("NOZZLE_PLAN_EXCEEDS_EXTRUDER_LIMIT")
 

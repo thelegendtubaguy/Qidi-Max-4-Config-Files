@@ -2,11 +2,13 @@
 
 ## Current status
 
-`installer/klipper/extras/tltg_pa_calibration.py` contains a hardware-tested non-homing CS1237 direct-response path. It schedules bounded `query_cs1237_read` commands and receives `query_cs1237_data` responses without calling the probe homing path. Idle response cadence is validated; ADC conversion freshness and conversion-time alignment are not yet validated.
+`installer/klipper/extras/tltg_pa_calibration.py` contains a hardware-tested non-homing CS1237 direct-response path. It schedules bounded `query_cs1237_read` commands and receives `query_cs1237_data` responses without calling the probe homing path. Idle and stationary direct-trapq captures are recorded, but ADC conversion freshness and conversion-time alignment are not yet validated.
 
-`CALIBRATION_ENABLED = False` remains mandatory. `TLTG_PA_CALIBRATE TEMP=<celsius> NOZZLE=<mm>` returns `PA_CALIBRATION_UNVALIDATED` before heating, homing, motion, extrusion, capture, or pressure-advance changes. The software-only path now includes fail-closed preflight, exact trapq runtime hashes, nozzle resource-plan validation, stationary lead-in/transition/lead-out planning, pulse grouping, orchestration ordering, idempotent cleanup, and result/failure formatting. Production nozzle plans remain `hardware_validated=False`, and no physical backend is wired to the public command. Stationary trapq execution, invalid-read classification under load, physical cleanup/cancellation, nozzle schedules, and printed-reference validation remain incomplete.
+`CALIBRATION_ENABLED = False` remains mandatory. `TLTG_PA_CALIBRATE TEMP=<celsius> NOZZLE=<mm>` returns `PA_CALIBRATION_UNVALIDATED` before heating, homing, motion, extrusion, capture, or pressure-advance changes. The production code includes fail-closed preflight, exact trapq runtime hashes, nozzle resource-plan validation, stationary lead-in/transition/lead-out planning, pulse grouping, orchestration ordering, idempotent cleanup, and result/failure formatting. Production nozzle plans remain `hardware_validated=False`, and no physical backend is wired to the public command.
 
-The retained cadence traces are in `openspec/changes/add-load-cell-pa-calibration/evidence/direct-read-cadence.json`. Absolute host timestamps were removed; signed counts, relative response receive times, and command round-trip times remain available for deterministic analysis. Receive time is not treated as proven ADC conversion time.
+Controlled `0.4 mm` nozzle testing with QIDI Box-fed PLA at `215 °C` established stationary direct-trapq extrusion, load-cell response under flow, PA/smooth-time restoration, ordinary E-move continuity, source preservation, chute clearing after at most two pulses, final cleanup, and successful stock `G28` after direct extrusion. Three of nine `500 Hz` under-load captures missed responses, isolated invalid excursions persisted, and repeated K responses were not repeatable enough to select a candidate. A single `250 Hz` under-load capture returned all `363/363` responses but is insufficient to establish a production rate.
+
+Sanitized idle cadence traces are in `evidence/direct-read-cadence.json`; the controlled `0.4 mm` summary is in `evidence/controlled-0.4-pla-215.json`. Absolute host timestamps and temporary harness paths are not retained. Receive time is not treated as proven ADC conversion time, and the summary's exploratory outlier heuristic is not a production classifier.
 
 ## Installed Max 4 contract
 
@@ -256,7 +258,7 @@ Each retained run was one second with no heating, motion, extrusion, homing, pro
 | 800 Hz | 800 | 800 | `0.999480 s` | `0.957 ms` | `2.458 ms` | `3.957 ms` | `0.563 ms` |
 | 1000 Hz | 1000 | 994 | `0.998915 s` | `0.899 ms` | `2.426 ms` | `7.038 ms` | `0.579 ms` |
 
-The 500 Hz path returned full host-response coverage with lower command pressure and less duplicate-response behavior than 800 Hz. It is the supported starting rate for trapq validation. The 1000 Hz path failed full-response-coverage requirements and must not be the default.
+The idle 500 Hz path returned full host-response coverage with lower command pressure and less duplicate-response behavior than 800 Hz, so it was selected as the starting rate for trapq validation. Under-load testing later found incomplete 500 Hz runs; it is not a validated production default. The 1000 Hz path failed idle full-response-coverage requirements.
 
 The CS1237 remains configured for 1280 SPS while host capture requests 500 reads per second. The ADC configuration rate and host requested-read rate are separate values and are both recorded in diagnostic artifacts. A `500/500` response count does not prove 500 distinct conversions or bound the age of the cached conversion returned in each response.
 
@@ -286,7 +288,7 @@ The Max 4 `cs1237.so` contains a `read_origin_data` method at ELF address `0xb07
 
 The Reddit implementation described below reports polling `sensor_helper.read_origin_data` at approximately 40 Hz on Q2/Q2C without creating another MCU object or touching sensor pins. That route may be useful as a low-rate compatibility fallback or validation cross-check, but 40 Hz provides only one sample every `25 ms` and may not resolve the PA transition timing required by this change.
 
-The current adapter uses the independently validated 500 Hz scheduled direct-read path. It must not silently fall back to `read_origin_data` without separate timing and force-response evidence.
+The developer adapter defaults to the idle-validated 500 Hz scheduled direct-read path and fails accounting when responses are missing. Production calibration must select a repeat-validated under-load rate no greater than 500 Hz and must not silently fall back to `read_origin_data` without separate timing and force-response evidence.
 
 ## Installed pressure-advance and trapq contract
 
@@ -327,11 +329,13 @@ Direct `trapq_append` only adds C queue entries. Normal `ToolHead._process_moves
 
 `installer/klipper/extras/tltg_pa_calibration.py` contains pure `TrapqMove` and `StationaryPulsePlan` abstractions. Each planned pulse has continuous PA-eligible low-flow lead-in, low/high/low transition, and lead-out segments; unit tests verify temporal and nominal-E continuity. Physical queue scheduling remains disabled until queue timing, rebasing, ordinary queue exclusion, cancellation, and generation lifecycle are implemented and physically validated.
 
-`QidiDirectTrapqAdapter` compares the installed `extruder.py`, `toolhead.py`, `chelper/__init__.py`, `trapq.c`, `kin_extruder.c`, and `c_helper.so` files with the exact hashes above. It also rejects a non-default QIDI `toolhead.e_enable`, a nonzero `toolhead.e_accumulator`, disagreement between `toolhead.commanded_pos[3]` and `extruder.last_position`, unsupported heater/extruder limits, and smoothing context shorter than half the active smooth time.
+`QidiDirectTrapqAdapter` compares the installed `extruder.py`, `toolhead.py`, `chelper/__init__.py`, `trapq.c`, `kin_extruder.c`, and `c_helper.so` files with the exact hashes above. Live preflight exposed that QIDI stores `pressure_advance`, `pressure_advance_smooth_time`, and `_set_pressure_advance()` on `PrinterExtruder.extruder_stepper`, not directly on `PrinterExtruder`. The adapter now validates that owner and requires its physical stepper trapq to be the active `PrinterExtruder` trapq. It also rejects a non-default QIDI `toolhead.e_enable`, a nonzero `toolhead.e_accumulator`, disagreement between `toolhead.commanded_pos[3]` and `extruder.last_position`, unsupported heater/extruder limits, and smoothing context shorter than half the active smooth time.
 
-The production resource registry contains entries for `0.2`, `0.4`, `0.6`, and `0.8` mm nozzles, but each entry has `hardware_validated=False` and no pulse values. Preflight returns `NOZZLE_PLAN_UNVALIDATED` until task 1.5 supplies measured flow, distance, duration, and clearing bounds. Synthetic validated plans exercise the planner and state machine without making those values production requirements.
+A temporary bounded hardware command queued one PA-eligible direct trapq pulse at a time with `0.5 mm/s` low flow, `2.0` or `3.0 mm/s` high flow, `10` or `20 mm/s²` acceleration, and K values `0`, `0.032`, and `0.08`. Every artifact recorded identical start/end XYZ `(135, 403, 200)`, restored PA `0.032` and smooth time `0.03`, and no command failure. A following ordinary relative E move advanced nominal E by exactly `1 mm`, and a final full `G28` completed before the bed returned to `Z=200` and the toolhead returned to the trash chute.
 
-The direct-response cadence, conversion freshness, and conversion-time residual must be measured while direct trapq work is active. Idle host-response cadence alone does not prove sensor timing, serial behavior, reactor behavior, or MCU behavior under simultaneous extrusion scheduling.
+The production resource registry contains entries for `0.2`, `0.4`, `0.6`, and `0.8 mm` nozzles, but each entry has `hardware_validated=False` and no pulse values. The `0.4 mm` exploration proves feasibility, not safe production bounds or candidate repeatability. Preflight therefore continues to return `NOZZLE_PLAN_UNVALIDATED`.
+
+Under-load direct responses showed measurable low/high/low force changes, but response completeness and cycle shape were not stable enough for candidate selection. Three of nine `500 Hz` captures missed one to three responses and maximum send intervals reached `15.096 ms`; the one `250 Hz` capture was complete. Near-zero and large isolated excursions remained present during force transitions. Conversion freshness, force-safe invalid classification, repeated-cycle timing, and candidate selection remain unresolved.
 
 ## Reddit post and comment evidence
 
@@ -360,7 +364,7 @@ The author's technical comment [t1_oznwy4x](https://old.reddit.com/r/QidiTech3D/
 - `strings` exposed CS1237 commands resembling Klipper HX71x commands;
 - direct 640/1280 Hz MCU querying was considered possible for a later version.
 
-The first five points align with the independent Max 4 host-binary and runtime-object analysis. The final native-rate claim is only partially supported: the firmware exposes direct and `rest_ticks` commands, but the matching dictionary lacks `cs1237_data`, and live 1000 Hz direct reads lost six responses. This change uses measured 500 Hz behavior rather than assuming native-rate bulk capture.
+The first five points align with the independent Max 4 host-binary and runtime-object analysis. The final native-rate claim is only partially supported: the firmware exposes direct and `rest_ticks` commands, but the matching dictionary lacks `cs1237_data`, and live 1000 Hz direct reads lost six responses. This change uses bounded scheduled direct reads and rejects incomplete captures rather than assuming native-rate bulk behavior.
 
 The comment thread also identifies validation areas already represented in `tasks.md`:
 
@@ -384,13 +388,11 @@ No Reddit source code was available at inspection time. No implementation was co
 
 ## Installer and runtime state
 
-The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` currently pins SHA-256 `c46135aeddacc1dc6653dce6edfdc61de8a61a4784d680925e46816234773ee1` for package `26.07.26.2`.
+The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `b6af2f05a1f635a5cc71398e6e9456197b0c1cbd63dad1d0c0b27b278d93e191` for package `26.07.26.3`.
 
-The controlled printer still has the earlier `b098374444746a66d7c5c719c991f697df42b1b9a3a9da65aca98bd123817a42` build loaded. The adapter hardening change was not deployed or reloaded during the read-only implementation session; no printer file or service was changed.
+Package `26.07.26.3` was installed on the controlled Max 4 from the validated development bundle. The state ledger and live extra reported the expected package version and module hash after a verified Klipper service-process restart. Klipper reported `ready`, the heater target was zero, the temporary hardware-spike module/config were absent, `developer_capture` was false, and `TLTG_PA_CALIBRATE TEMP=215 NOZZLE=0.4` returned `PA_CALIBRATION_UNVALIDATED` without physical effects.
 
 The managed destination supports collision detection, drift rejection, atomic replacement, rollback, state-ledger recording, upgrade, uninstall, and optional preimage restoration. Recovery-sentinel validation checks expected existence, SHA-256, and mode for rollback-tracked files outside `config/`.
-
-The package containing the direct-read adapter was installed on the controlled Max 4 and loaded successfully after a Klipper service restart. The installed module hash matched the manifest, `developer_capture: False`, Klipper reported ready, and public calibration remained disabled.
 
 A Moonraker `/printer/restart` reloads configuration but does not reload an already imported Python extra after an upgrade. A process-level Klipper service restart loaded the changed module during validation. New or changed managed Python files share the guarded activation marker introduced by the QIDI homing source patch: the marker is written before deployment, binds each destination to its expected SHA-256 or expected absence, and is removed only after Moonraker reports `ready` under a new Klipper process ID. Unchanged Python files retain the ordinary `/printer/restart` path. Restore reconstructs the PA extra's presence from archived installed state and requires an exact matching bundle payload.
 
@@ -398,8 +400,8 @@ A Moonraker `/printer/restart` reloads configuration but does not reload an alre
 
 The direct-read implementation passed:
 
-- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 51 tests;
-- `python3 scripts/run_installer_core_tests.py` — 241 tests;
+- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 52 tests;
+- `python3 scripts/run_installer_core_tests.py` — 242 tests;
 - `python3 scripts/format_klipper_configs.py` — no formatting changes;
 - `python3 scripts/check_installer_known_versions.py` — compatibility metadata valid;
 - `openspec validate add-load-cell-pa-calibration --strict` — valid;
@@ -422,27 +424,27 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Missing or unsupported temperature is rejected | `validate_inputs()` and heater-bound validation reject missing and out-of-range values. | Confirm target limits on each supported firmware baseline. |
 | All Max 4 nozzle sizes are accepted | Input parsing accepts exactly `0.2`, `0.4`, `0.6`, and `0.8`. | Each production resource plan remains unvalidated. |
 | Missing or unsupported nozzle diameter is rejected | Unit tests cover missing and unsupported diameters without fallback lookup. | None. |
-| Valid preflight performs full homing and lowers the bed | State-machine order is `home_all`, absolute `Z=200`, then trash parking before heating. | Physical backend, clearance, and abort behavior are unvalidated. |
+| Valid preflight performs full homing and lowers the bed | State-machine order is `home_all`, absolute `Z=200`, then trash parking before heating; the controlled `0.4 mm` run completed that physical sequence. | Production backend and abort behavior remain unvalidated. |
 | Concurrent calibration or probe ownership is rejected | In-process ownership, response-handler ownership, and read-only stock `homing` state are checked. | Probe/calibration race testing remains. |
 | Supported stock sensor contract is accepted | Structural, OID, command, handler, configuration `60`, scheduling, and payload checks have unit and idle-printer evidence. | Conversion freshness under trapq work remains. |
 | Changed private interface is rejected | Missing attributes, malformed configuration, handler collision, and runtime mismatches fail closed. | Repeat against every supported firmware artifact. |
 | Homing trigger acquisition is rejected for calibration | Calibration code contains no `setup_home`, `cs1237_setup_home`, `TriggerDispatch`, or `trsync` acquisition path. | None. |
-| Stock probing remains available after calibration | Direct-read cleanup does not alter zero, threshold, or homing objects. | Post-trapq Z homing, Z tilt, and mesh validation remains. |
-| Measured pulses have no XY motion | Pure plans append only to the extruder trapq with zero Y/Z direction fields. | Physical step-generation proof remains. |
-| Injected moves exercise the real PA transform | Append fixtures set `axes_r_y=1`; installed C behavior is statically characterized. | Active PA transform must be measured during generated steps. |
-| Private trapq contract is incompatible | Six exact runtime hashes plus structural and QIDI E-state guards are implemented. | Runtime guard must be exercised on the printer before motion. |
-| Bypassed move limits are enforced explicitly | Resource-plan and extruder velocity, acceleration, distance, temperature, smoothing, and positive-value checks exist. | Queue overlap, generation lifecycle, and physical limit validation remain. |
+| Stock probing remains available after calibration | Full `G28` succeeded after direct-trapq pulses and final cleanup without modifying probe zero, threshold, or homing objects. | Post-capture Z tilt and mesh validation remain. |
+| Measured pulses have no XY motion | Controlled direct pulses extruded `1.275` or `2.0375 mm` while start/end XYZ remained `(135, 403, 200)`. | Repeat with production backend and every nozzle plan. |
+| Injected moves exercise the real PA transform | Live moves used `axes_r_y=1` and K values `0`, `0.032`, and `0.08`; the installed PA owner was exercised and restored. | Force responses were not repeatable enough to validate candidate interpretation. |
+| Private trapq contract is incompatible | Live preflight exposed the `extruder_stepper` PA owner; the adapter now validates that owner and active stepper trapq in addition to six runtime hashes. | Repeat against every supported firmware artifact. |
+| Bypassed move limits are enforced explicitly | Resource-plan and extruder velocity, acceleration, distance, temperature, smoothing, and positive-value checks exist; bounded controlled pulses and a following ordinary E move completed. | Production queue ownership and cancellation remain. |
 | Resource bounds are enforced | Pulse/group distance, duration, count, and capture-window arithmetic fail closed. | Production per-nozzle bounds remain `hardware_validated=False`. |
-| Intermediate flap clearing follows a pulse group | State-machine tests stop capture and call clear, park, and settle after groups of at most two. | Physical macro return position and settling time remain unvalidated. |
-| No cleanup precedes the first pulse | State-machine event-order tests contain no clear operation before the first group. | Physical backend remains unwired. |
-| Final cleanup follows calibration extrusion | Cleanup orders trapq finalization, restoration, `CLEAR_OOZE`, then `CLEAR_FLUSH` when motion is safe. | Physical completion and park state remain unvalidated. |
+| Intermediate flap clearing follows a pulse group | Controlled `0.4 mm` pulses ran in groups of one or two followed by `CLEAR_FLUSH` and return to `(135, 403, 200)`. | Sensor settling time and production orchestration remain unvalidated. |
+| No cleanup precedes the first pulse | State-machine order and the controlled run contain no clear operation before the first measured pulse. | Production backend remains unwired. |
+| Final cleanup follows calibration extrusion | Controlled cleanup completed `CLEAR_OOZE`, `CLEAR_FLUSH`, heater shutdown, post-capture `G28`, `Z=200`, and trash parking. | Failure and cancellation cleanup remain unvalidated. |
 | Cleanup commands are unavailable | Preflight requires `OPTIMIZED_MOVE_TO_TRASH`, `CLEAR_OOZE`, and `CLEAR_FLUSH`. | None for command registration. |
-| QIDI Box filament is loaded | Preflight classifies corroborated physical slots as `qidi_box` without source-changing calls. | Controlled Box-fed extrusion remains. |
+| QIDI Box filament is loaded | Box 2 slot 0/global `slot4` remained loaded, synchronized, and detected through controlled PLA extrusion and cleanup. | Repeat with other physical slots and transition states. |
 | External-spool filament is loaded | Box-disabled and synchronized `slot16` paths classify as `external`. | Controlled external-spool extrusion remains. |
-| Capture covers the measured motion window | Transition windows and coverage/timing calculations exist. | Split capture scheduling around real trapq work and conversion-time bounds remain. |
-| Conversion freshness is inconclusive | No public candidate path can bypass the disabled gate. | Hardware invariant for cached conversion age remains unknown. |
-| Raw processing respects host limits | Duration, rate, request count, response retention, and developer-file output are bounded. | Reactor load under simultaneous trapq work remains. |
-| Invalid direct-read excursions are detected | Invalid payload/timing responses are retained and fail capture accounting. | A force-safe raw-count classifier remains unknown. |
+| Capture covers the measured motion window | Controlled captures bracketed scheduled direct-trapq transitions and retained send/receive timing. | Cached-conversion age and print-time conversion bounds remain unknown. |
+| Conversion freshness is inconclusive | Under-load captures are retained without promoting response receive time to conversion time, and public reporting remains disabled. | Hardware invariant for cached conversion age remains unknown. |
+| Raw processing respects host limits | Six of nine `500 Hz` under-load runs were complete; one `250 Hz` run returned `363/363`. | Select and repeat-validate a rate with acceptable timing and reactor load. |
+| Invalid direct-read excursions are detected | Near-zero and isolated large excursions were retained during force transitions. | A force-safe raw-count classifier remains unknown. |
 | Timing uncertainty exceeds tolerance | Coverage, gap, and timing-residual gates return stable inconclusive reasons. | Thresholds require conversion-time evidence. |
 | Valid response produces an interior candidate | Deterministic fixtures require corroboration and reject edge candidates. | Hardware-selected candidates remain disabled. |
 | No detectable force response is inconclusive | Signal-amplitude and noise gates return `WEAK_OR_NOISY_SIGNAL`. | Threshold tuning requires traces. |
@@ -450,15 +452,15 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Candidate reaches a search boundary | Selection returns `K_RANGE_NOT_BRACKETED`. | Production K range remains. |
 | Repeated cycles disagree | Corroboration, repeatability, and monotonicity gates have fixtures. | Production tolerances remain. |
 | Value is visible to the user | `execute_and_report()` formats the required success response only after cleanup. | Public execution remains disabled. |
-| Value is not retained by Klipper | State-machine backend contract restores temporary state before reporting. | PA/smooth-time and nominal-E restoration require physical validation. |
+| Value is not retained by Klipper | Controlled pulses restored PA `0.032` and smooth time `0.03`; a following ordinary relative E move advanced exactly `1 mm`. | Production backend restoration remains unwired. |
 | Persistent stores remain unchanged | Runtime interfaces contain no persistence or slicer-writing operation; macro only forwards inputs. | Recheck after the physical backend is implemented. |
 | Inconclusive result has no value token | Failure formatting sanitizes reasons and tests reject `PA_VALUE` injection. | Public execution remains disabled. |
-| Successful cleanup restores temporary state | Snapshot-before-setup and idempotent cleanup ordering have unit coverage. | Concrete PA, G-code mode, motion-limit, and E rebase backend remains. |
+| Successful cleanup restores temporary state | Controlled pulses restored PA/smooth time and ordinary E continuity; final motion cleanup completed. | Concrete production backend, G-code modes, motion limits, and failure paths remain. |
 | Mid-sweep cancellation restores state | Injected pulse/capture failures run finalize and restore once. | Real Klipper cancellation and already-generated-step behavior remain. |
 | Analysis failure restores state | Injected analysis failure restores before emitting failure. | Concrete backend remains. |
 | Klipper shutdown interrupts calibration | Motion-unsafe cleanup omits clear motion and records manual cleanup. | Shutdown event wiring remains. |
 | Fresh installation deploys the capability | Installer external-file and managed-tree integration tests pass. | No current deployment is requested. |
-| Python extra upgrade reloads module code | Changed extras require Moonraker service-process restart. | Normal and auto-update printer flows remain to be observed. |
+| Python extra upgrade reloads module code | Packages `26.07.26.2` and `26.07.26.3` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
 | Destination collision fails safely | Installer collision and drift tests pass before writes. | None. |
 | Failed installation rolls back the extra | Integration tests cover external-file rollback and recovery state. | None. |
 | Uninstall removes only the managed extra | Exact-hash removal and preimage restoration tests pass. | None. |
@@ -471,18 +473,18 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 
 ## Required next evidence
 
-The following findings are not established by idle direct-read capture:
+The following findings remain unresolved after the controlled `0.4 mm` PLA run:
 
 1. A bound on cached-conversion age and conversion-time error relative to scheduled requests and Klipper print time.
 2. A raw/timing invariant that rejects invalid reads during real force transitions without suppressing valid signal edges.
-3. Stable 500 Hz host-response coverage and bounded reactor impact while direct extruder trapq work is queued and executing.
-4. Physical validation of direct-trapq generation timing, nominal-E rebasing, smoothing context, queue drain, and cancellation behavior.
-5. Idle, heated-idle, normal E-only, PA-enabled stationary low/high/low, and `CLEAR_FLUSH` force traces.
-6. Force polarity, baseline drift, sensor settling, flap contamination, and signal-to-noise limits.
-7. Safe flow schedules, extrusion caps, pulse duration, and PA search bounds for `0.2`, `0.4`, `0.6`, and `0.8` mm nozzles.
-8. QIDI Box and external-spool operation without source selection changes.
-9. Full `G28`, absolute `Z=200`, chute parking, intermediate clearing after at most two pulses, final `CLEAR_OOZE`/`CLEAR_FLUSH`, and all failure/cancellation cleanup paths.
+3. A repeat-validated under-load request rate; `500 Hz` missed responses in three of nine runs and `250 Hz` has one complete run.
+4. Production direct-trapq ownership, queue drain, and real cancellation/shutdown behavior; bounded generation and ordinary E continuity passed.
+5. Normal E-only and `CLEAR_FLUSH` force traces; idle, heated-idle, and stationary PA-eligible low/high/low traces are retained.
+6. Force polarity, baseline drift, sensor settling, flap contamination, signal-to-noise limits, and repeatable K-response classification.
+7. Safe flow schedules, extrusion caps, pulse duration, and PA search bounds for `0.2`, `0.4`, `0.6`, and `0.8 mm` nozzles.
+8. External-spool operation and additional Box slots; Box-fed global `slot4` remained unchanged in the controlled run.
+9. Failure and cancellation cleanup paths; successful full homing, `Z=200`, trash parking, intermediate clearing, final clearing, heater shutdown, and post-capture homing passed.
 10. Repeatability across materials and temperatures and agreement tolerances against conventional printed PA calibration.
-11. Process-level Python-extra restart behavior in normal and auto-update installer flows.
+11. Auto-update process activation; normal installer service-process restart was verified.
 
 Candidate reporting must remain disabled until these items satisfy the scenarios in `specs/load-cell-pa-calibration/spec.md`.
