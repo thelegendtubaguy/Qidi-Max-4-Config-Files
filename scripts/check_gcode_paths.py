@@ -20,7 +20,7 @@ from installer.tests.integration.test_macro_call_graph import (  # noqa: E402
     parse_macro_definitions,
 )
 
-CONTRACT_ROOT = REPO_ROOT / "docs" / "gcode-paths"
+CONTRACT_ROOT = REPO_ROOT / "openspec" / "contracts" / "gcode-paths"
 CONTRACT_GLOB = "*.path.json"
 
 
