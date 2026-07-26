@@ -25,15 +25,16 @@ class CliTests(unittest.TestCase):
         fluidd_path = printer_root / "config/fluidd.cfg"
         fluidd_path.unlink(missing_ok=True)
         fluidd_path.symlink_to(fluidd_target)
+        backup_label = f"{INSTALL_BACKUP_LABEL_PREFIX}-01.01.06.03-26.07.13.1-20260726T000000Z"
         backup_zip = create_config_backup(
             printer_data_root=printer_root,
             source_directory="config",
-            backup_label="recorded-backup",
+            backup_label=backup_label,
         )
         sentinel = printer_root / ".tltg_optimized_recovery_required"
         sentinel.write_text(
             "error: write failed\n"
-            f"backup_label: recorded-backup\n"
+            f"backup_label: {backup_label}\n"
             f"backup_zip_path: {backup_zip}\n",
             encoding="utf-8",
         )
@@ -63,6 +64,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(sentinel.exists())
         self.assertIn("Recovery sentinel cleared.", stream.getvalue())
+
+    def test_clear_recovery_sentinel_rejects_current_archive_without_external_manifest(self):
+        printer_root = copy_base_runtime()
+        backup_label = f"{INSTALL_BACKUP_LABEL_PREFIX}-01.01.06.03-26.07.26.1-20260726T000000Z"
+        backup_zip = create_config_backup(
+            printer_data_root=printer_root,
+            source_directory="config",
+            backup_label=backup_label,
+        )
+        sentinel = printer_root / ".tltg_optimized_recovery_required"
+        sentinel.write_text(
+            "error: write failed\n"
+            f"backup_label: {backup_label}\n"
+            f"backup_zip_path: {backup_zip}\n",
+            encoding="utf-8",
+        )
+
+        stream = io.StringIO()
+        rc = main(
+            ["clear-recovery-sentinel"],
+            stream=stream,
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url="http://127.0.0.1:9/unused"),
+        )
+        self.assertEqual(rc, 1)
+        self.assertTrue(sentinel.exists())
+        self.assertIn("external source metadata", stream.getvalue())
 
     def test_auto_update_check_honors_recovery_sentinel_before_running(self):
         printer_root = copy_base_runtime()
@@ -243,10 +271,11 @@ class CliTests(unittest.TestCase):
         auto_prompt_index = output.index(
             "Would you like to enable hourly automatic updates for the TLTG configs?"
         )
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(auto_prompt_index, restart_prompt_index)
         self.assertIn("Auto-updates not enabled.", output)
-        self.assertIn("Restart Klipper to apply changes.", output)
+        self.assertIn("Klipper service restart remains required", output)
+        self.assertTrue((printer_root / ".tltg_optimized_klipper_restart_required").exists())
 
     def test_install_repairs_existing_auto_updates_before_restart(self):
         printer_root = copy_base_runtime()
@@ -272,7 +301,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         repair_index = output.index("Auto-updates repaired.")
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(repair_index, restart_prompt_index)
         self.assertNotIn("Would you like to enable hourly automatic updates for the TLTG configs?", output)
 
@@ -332,9 +361,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         disable_index = output.index("Auto-updates disabled.")
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(disable_index, restart_prompt_index)
-        self.assertIn("Restart Klipper to apply changes.", output)
 
     def test_install_demo_tui_returns_zero_without_writing(self):
         printer_root = copy_base_runtime()

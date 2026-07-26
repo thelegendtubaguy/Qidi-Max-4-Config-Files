@@ -13,11 +13,13 @@ USER_MODIFIED = "user_modified"
 SECTION_DELETED = "__TLTG_SECTION_DELETED__"
 
 
-def classify_install_patch(current: str, patch: PatchSpec, firmware_version: str) -> PatchResult:
+def classify_install_patch(current: str, patch: PatchSpec, firmware_version: str, prior_state=None) -> PatchResult:
     variant = select_patch_variant(patch, firmware_version)
     if current == variant.desired:
         classification = INSTALL_NOOP_DESIRED
     elif current == variant.expected:
+        classification = INSTALL_APPLIED
+    elif current == "65" and _prior_managed_65(prior_state, patch):
         classification = INSTALL_APPLIED
     else:
         classification = USER_MODIFIED
@@ -32,6 +34,19 @@ def classify_install_patch(current: str, patch: PatchSpec, firmware_version: str
         classification=classification,
     )
 
+
+
+def _prior_managed_65(prior_state, patch: PatchSpec) -> bool:
+    if prior_state is None or patch.id not in {"stepper_x_homing_speed", "stepper_y_homing_speed"}:
+        return False
+    return any(
+        entry.id == patch.id
+        and entry.target_tuple == patch.target_tuple
+        and entry.expected == select_patch_variant(patch, prior_state.runtime_firmware).expected
+        and entry.desired == "65"
+        and entry.install_result in {INSTALL_APPLIED, INSTALL_NOOP_DESIRED}
+        for entry in prior_state.patch_ledger
+    )
 
 
 def classify_install_section_delete(

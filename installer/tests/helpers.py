@@ -14,7 +14,21 @@ BASE_RUNTIME_FIXTURE = FIXTURES_ROOT / "runtime" / "base"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MOONRAKER_QUERY_URL = "http://moonraker.invalid/printer/objects/query?print_stats"
 _TEMP_ROOTS: list[Path] = []
-
+def homing_fixture_bytes(firmware: str) -> bytes:
+    if firmware not in {"01.01.06.03", "01.01.06.04"}:
+        raise ValueError(f"Unsupported homing fixture firmware: {firmware}")
+    value = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
+    value = value.replace(b"G4 P100", b"G4 P200").replace(b"G4 P50", b"G4 P200")
+    value = value.replace(
+        b'self.toolhead.dwell(\r\n            .25 if rails[0].get_name() in ("stepper_x", "stepper_y")\r\n            else 1)',
+        b"self.toolhead.dwell(1)",
+    )
+    if firmware == "01.01.06.03":
+        value = value.replace(
+            b"G4 P200\\nSET_HOMING_MODE STEPPER=y VALUE=2",
+            b"G4 P200SET_HOMING_MODE STEPPER=y VALUE=2",
+        )
+    return value
 
 
 def temp_path(prefix: str) -> Path:
@@ -38,6 +52,9 @@ def copy_base_runtime() -> Path:
     temp_root = temp_path("installer-runtime-")
     shutil.copytree(BASE_RUNTIME_FIXTURE / "config", temp_root / "config")
     shutil.copy2(BASE_RUNTIME_FIXTURE / "firmware_manifest.json", temp_root / "firmware_manifest.json")
+    target = temp_root / "klipper/klippy/extras"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "homing.py").write_bytes(homing_fixture_bytes("01.01.06.03"))
     return temp_root
 
 
@@ -47,6 +64,7 @@ def build_env(printer_data_root: Path, *, moonraker_url: str) -> dict[str, str]:
         "TLTG_OPTIMIZED_PRINTER_DATA_ROOT": str(printer_data_root),
         "TLTG_OPTIMIZED_FIRMWARE_MANIFEST": str(printer_data_root / "firmware_manifest.json"),
         "TLTG_OPTIMIZED_MOONRAKER_URL": moonraker_url,
+        "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_data_root / "klipper"),
     }
 
 
@@ -79,8 +97,15 @@ def moonraker_urlopen(state: str | None = "standby", *, raw_payload=None):
     payload = raw_payload
     if payload is None:
         payload = {"result": {"status": {"print_stats": {"state": state}}}}
+    process = {"pid": 100}
 
     def urlopen(request, timeout=0):
+        url = getattr(request, "full_url", str(request))
+        if "/machine/services/restart" in url:
+            process["pid"] += 1
+            return _JsonResponse({"result": "ok"})
+        if "/printer/info" in url:
+            return _JsonResponse({"result": {"state": "ready", "process_id": process["pid"]}})
         return _JsonResponse(payload)
 
     return urlopen
@@ -92,14 +117,27 @@ def moonraker_server(state: str | None = "standby", *, raw_payload=None):
     if payload is None:
         payload = {"result": {"status": {"print_stats": {"state": state}}}}
 
+    process = {"pid": 100}
+
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            body = json.dumps(payload).encode("utf-8")
+        def _respond(self, body):
+            raw = json.dumps(body).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            if self.path.endswith("/printer/info"):
+                self._respond({"result": {"state": "ready", "process_id": process["pid"]}})
+            else:
+                self._respond(payload)
+
+        def do_POST(self):
+            if self.path.endswith("/machine/services/restart"):
+                process["pid"] += 1
+            self._respond({"result": "ok"})
 
         def log_message(self, fmt, *args):
             return

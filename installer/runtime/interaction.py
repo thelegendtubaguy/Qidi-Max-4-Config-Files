@@ -59,6 +59,41 @@ def confirm_yes(
 
 
 
+def maybe_restart_pending_service(
+    *,
+    paths,
+    allowed_entries,
+    reporter,
+    input_stream: TextIO | None,
+    urlopen: UrlOpenFn = urllib.request.urlopen,
+) -> bool:
+    from .process_restart import ProcessRestartError, restart_pending
+
+    if input_stream is not None and not confirm_yes(
+        reporter=reporter,
+        input_stream=input_stream,
+        question=messages.KLIPPER_SERVICE_RESTART_PROMPT,
+        instruction=messages.KLIPPER_SERVICE_RESTART_PROMPT_INSTRUCTION,
+        cancel_message=messages.KLIPPER_SERVICE_RESTART_PENDING,
+    ):
+        if hasattr(reporter, "debug"):
+            reporter.debug(event="klipper.process_restart.declined")
+        return False
+    try:
+        restart_pending(paths, allowed_entries=allowed_entries, urlopen=urlopen)
+    except ProcessRestartError as exc:
+        if hasattr(reporter, "debug"):
+            reporter.debug(event="klipper.process_restart.failed", message=exc.message)
+        reporter.line(messages.KLIPPER_SERVICE_RESTART_FAILED)
+        if input_stream is None:
+            raise
+        return False
+    if hasattr(reporter, "debug"):
+        reporter.debug(event="klipper.process_restart.verified")
+    reporter.line(messages.KLIPPER_SERVICE_RESTARTED)
+    return True
+
+
 def maybe_restart_klipper(
     *,
     reporter,

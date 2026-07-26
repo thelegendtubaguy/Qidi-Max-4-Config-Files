@@ -132,21 +132,24 @@ def _update_upgrade_sources(text: str, version: str, manifest: Manifest) -> str:
 
 
 def _render_upgrade_source_block(version: str, manifest: Manifest) -> str:
-    lines = [f'  "{version}":', "    allowed_patch_targets:"]
-    seen: set[tuple[str, str, str]] = set()
-    for patch in (*manifest.patches.set_options, *manifest.patches.delete_sections):
-        target = patch.target_tuple
-        if target in seen:
-            continue
-        seen.add(target)
-        file_path, section, option = target
-        lines.extend(
-            [
-                f'      - file: "{file_path}"',
-                f'        section: "{section}"',
-                f'        option: "{option}"',
-            ]
-        )
+    lines = [
+        f'  "{version}":',
+        f'    inherits: "{manifest.package.version}"',
+    ]
+    if manifest.install.source_patches:
+        lines.append("")
+        lines.append("    source_patches:")
+        for patch in manifest.install.source_patches:
+            for variant in patch.variants:
+                lines.extend(
+                    [
+                        f'      - id: "{patch.id}"',
+                        f'        destination: "{patch.destination}"',
+                        f'        firmware: "{variant.firmware}"',
+                        f'        original_sha256: "{variant.expected_sha256}"',
+                        f'        desired_sha256: "{variant.desired_sha256}"',
+                    ]
+                )
     return "\n".join(lines) + "\n"
 
 

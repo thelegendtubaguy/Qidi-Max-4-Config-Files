@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
+import stat
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 import os
+import re
 import shutil
 import tempfile
 import zipfile
 
-from .fs_atomic import fsync_directory
+from .fs_atomic import atomic_write_bytes, fsync_directory
 from .path_safety import (
+    ensure_external_path_has_no_symlink_components,
     ensure_runtime_path_has_no_symlink_components,
     ensure_runtime_tree_has_no_symlinks,
 )
@@ -24,6 +29,16 @@ CONFIG_BACKUP_IGNORED_SYMLINK_PARTS = tuple(
 )
 BACKUP_TIMESTAMP_FORMAT = "%Y%m%dT%H%M%SZ"
 BACKUP_DISPLAY_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
+LEGACY_CONFIG_ONLY_PACKAGE_VERSIONS = frozenset({
+    "26.04.21.1", "26.04.27.1", "26.04.27.2", "26.04.27.3", "26.04.27.4",
+    "26.05.04.1", "26.05.19.1", "26.05.20.1", "26.05.21.1", "26.05.27.1",
+    "26.06.01.1", "26.06.02.1", "26.06.03.1", "26.06.04.1", "26.06.11.1",
+    "26.06.13.1", "26.06.15.1", "26.07.03.1", "26.07.03.2", "26.07.13.1",
+    "26.07.13.2",
+})
+_PACKAGE_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+
+
 class BackupArchiveError(ValueError):
     pass
 
@@ -170,11 +185,35 @@ def prune_installer_backups(
     return tuple(removed_paths)
 
 
+def requires_external_backup_manifest(
+    *, package_version: str | None, state_declares_source_patches: bool
+) -> bool:
+    return (
+        state_declares_source_patches
+        or package_version is None
+        or package_version not in LEGACY_CONFIG_ONLY_PACKAGE_VERSIONS
+    )
+
+
+def package_version_from_backup_label(label: str | None) -> str | None:
+    if not label:
+        return None
+    try:
+        _, package_version, timestamp = label.rsplit("-", 2)
+    except ValueError:
+        return None
+    if _parse_backup_timestamp(timestamp) is None or not _PACKAGE_VERSION_RE.fullmatch(package_version):
+        return None
+    return package_version
+
+
 def create_config_backup(
     *,
     printer_data_root: Path,
     source_directory: str,
     backup_label: str,
+    external_files: tuple[tuple[str, str, Path], ...] = (),
+    external_firmware: str | None = None,
 ) -> Path:
     source_root = printer_data_root / source_directory
     if not source_root.exists() or not source_root.is_dir() or source_root.is_symlink():
@@ -209,6 +248,32 @@ def create_config_backup(
         with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for item in source_files:
                 archive.write(item, item.relative_to(printer_data_root))
+            if external_files:
+                if not isinstance(external_firmware, str) or not external_firmware:
+                    raise BackupArchiveError(
+                        "External source backups require detected firmware provenance."
+                    )
+                entries = []
+                for patch_id, destination, item in external_files:
+                    if item.is_symlink() or not item.is_file():
+                        raise BackupArchiveError(f"External backup target is not a regular file: {item}")
+                    member = f"external/{patch_id}"
+                    value = item.read_bytes()
+                    archive.writestr(member, value)
+                    entries.append({"id": patch_id, "destination": destination, "member": member,
+                                    "sha256": hashlib.sha256(value).hexdigest(),
+                                    "mode": stat.S_IMODE(item.stat().st_mode)})
+                archive.writestr(
+                    ".tltg-external-files.json",
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "firmware": external_firmware,
+                            "files": entries,
+                        },
+                        sort_keys=True,
+                    ),
+                )
         os.chmod(temp_path, 0o600)
         os.replace(temp_path, final_path)
         fsync_directory(backup_root)
@@ -216,6 +281,92 @@ def create_config_backup(
         if temp_path.exists():
             temp_path.unlink()
     return final_path
+
+
+def load_external_backup_entries(
+    *,
+    backup_zip_path: Path,
+    allowed_entries: dict[str, str],
+    require_manifest: bool,
+) -> tuple[str | None, tuple[tuple[str, str, bytes, int], ...]]:
+    """Load only the complete, allowlisted external snapshot set from an archive."""
+    try:
+        with zipfile.ZipFile(backup_zip_path, "r") as archive:
+            infos = archive.infolist()
+            names = [info.filename for info in infos]
+            if len(names) != len(set(names)):
+                raise BackupArchiveError("Backup archive contains duplicate members.")
+            manifest_name = ".tltg-external-files.json"
+            if manifest_name not in names:
+                if require_manifest:
+                    raise BackupArchiveError("Backup archive is missing external source metadata.")
+                return None, ()
+            raw = json.loads(archive.read(manifest_name).decode("utf-8"))
+            if not isinstance(raw, dict) or raw.get("schema_version") != 1 or not isinstance(raw.get("files"), list):
+                raise BackupArchiveError("External source metadata is malformed.")
+            firmware = raw.get("firmware")
+            if firmware is not None and (not isinstance(firmware, str) or not firmware):
+                raise BackupArchiveError("External source firmware provenance is malformed.")
+            entries: list[tuple[str, str, bytes, int]] = []
+            ids: set[str] = set()
+            destinations: set[str] = set()
+            members: set[str] = set()
+            for item in raw["files"]:
+                if not isinstance(item, dict):
+                    raise BackupArchiveError("External source metadata entry is malformed.")
+                patch_id, destination, member = item.get("id"), item.get("destination"), item.get("member")
+                digest, mode = item.get("sha256"), item.get("mode")
+                if (
+                    not isinstance(patch_id, str)
+                    or allowed_entries.get(patch_id) != destination
+                    or not isinstance(member, str)
+                    or member != f"external/{patch_id}"
+                    or member.startswith("/")
+                    or ".." in PurePosixPath(member).parts
+                    or not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(c not in "0123456789abcdef" for c in digest.lower())
+                    or isinstance(mode, bool)
+                    or not isinstance(mode, int)
+                    or not 0 <= mode <= 0o777
+                    or patch_id in ids
+                    or destination in destinations
+                    or member in members
+                    or member not in names
+                ):
+                    raise BackupArchiveError("External source metadata is invalid.")
+                info = archive.getinfo(member)
+                file_type = (info.external_attr >> 16) & 0o170000
+                if info.is_dir() or file_type not in {0, stat.S_IFREG}:
+                    raise BackupArchiveError("External backup member is not a regular file.")
+                value = archive.read(member)
+                if hashlib.sha256(value).hexdigest() != digest.lower():
+                    raise BackupArchiveError("External backup member hash mismatch.")
+                ids.add(patch_id)
+                destinations.add(destination)
+                members.add(member)
+                entries.append((patch_id, destination, value, mode))
+            if {name for name in names if name.startswith("external/")} != members:
+                raise BackupArchiveError("External backup members do not match metadata.")
+            if require_manifest and (ids != set(allowed_entries) or destinations != set(allowed_entries.values())):
+                raise BackupArchiveError("External source metadata is incomplete.")
+            return firmware, tuple(entries)
+    except (OSError, zipfile.BadZipFile, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise BackupArchiveError("Could not validate external backup metadata.") from exc
+
+
+def restore_external_backup_entries(*, entries: tuple[tuple[str, str, bytes, int], ...], destination_root: Path) -> None:
+    try:
+        for _, destination, value, mode in entries:
+            target = destination_root / destination
+            ensure_external_path_has_no_symlink_components(root=destination_root, target=target)
+            if target.is_symlink() or not target.is_file():
+                raise BackupArchiveError(f"External restore target is not a regular file: {destination}")
+            atomic_write_bytes(target, value, mode=mode, force_mode=True)
+            if target.read_bytes() != value:
+                raise BackupArchiveError(f"External restore verification failed: {destination}")
+    except OSError as exc:
+        raise BackupArchiveError("External restore failed.") from exc
 
 
 def snapshot_runtime_tree(

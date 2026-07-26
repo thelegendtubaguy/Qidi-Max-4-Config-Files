@@ -3,6 +3,7 @@ from __future__ import annotations
 from . import klipper_cfg
 from .ensure_lines import has_active_line
 from .errors import PreflightTargetsError
+from .manifest import select_source_patch_variant
 from .mirror import collect_source_hashes, sha256_file
 from .models import (
     EnsureLineSpec,
@@ -19,7 +20,11 @@ from .patches import SECTION_DELETED, USER_MODIFIED
 
 
 def verify_install_postflight(
-    *, paths: RuntimePaths, manifest: Manifest, patch_results: tuple[PatchResult, ...] = ()
+    *,
+    paths: RuntimePaths,
+    manifest: Manifest,
+    patch_results: tuple[PatchResult, ...] = (),
+    detected_firmware: str | None = None,
 ) -> None:
     expected_files = collect_source_hashes(
         paths.installer_root / manifest.managed_tree.source,
@@ -35,6 +40,12 @@ def verify_install_postflight(
             continue
         if sha256_file(path) != expected_sha256:
             missing_files.append(rel_path)
+    if detected_firmware is not None:
+        for patch in manifest.install.source_patches:
+            path = paths.managed_klipper_root / patch.destination
+            desired = select_source_patch_variant(patch, detected_firmware).desired_sha256
+            if path.is_symlink() or not path.is_file() or sha256_file(path) != desired:
+                missing_files.append(patch.destination)
     missing_lines = []
     for spec in manifest.postflight.verify_lines:
         path = paths.printer_data_root / spec.file
@@ -122,6 +133,10 @@ def verify_uninstall_postflight(
     managed_tree_root = paths.printer_data_root / state.managed_tree.root
     if managed_tree_root.exists():
         missing_files.append(state.managed_tree.root)
+    for entry in state.source_patches:
+        path = paths.managed_klipper_root / entry.destination
+        if path.is_symlink() or not path.is_file() or sha256_file(path) != entry.original_sha256:
+            missing_files.append(entry.destination)
 
     for result in patch_results:
         if result.classification == USER_MODIFIED:

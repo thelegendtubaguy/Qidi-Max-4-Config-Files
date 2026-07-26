@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import pty
@@ -51,6 +52,16 @@ def main(argv: list[str] | None = None) -> int:
     for firmware in ("01.01.06.03", "01.01.06.04"):
         if not (bundle_root / f"installer/stock/qidi-max4-defaults/firmwares/{firmware}/config/printer.cfg").exists():
             raise SystemExit(f"bundle smoke test is missing {firmware} stock config snapshot")
+    payload = bundle_root / "installer/klipper/qidi/homing.py"
+    if not payload.is_file() or payload.is_symlink():
+        raise SystemExit("bundle smoke test is missing production homing.py payload")
+    payload_bytes = payload.read_bytes()
+    try:
+        compile(payload_bytes, str(payload), "exec")
+    except SyntaxError as exc:
+        raise SystemExit(f"bundle homing.py payload does not compile: {exc}") from exc
+    if hashlib.sha256(payload_bytes).hexdigest() != "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3":
+        raise SystemExit("bundle homing.py payload hash does not match package manifest")
     package_version = read_package_version(bundle_root / "installer/package.yaml")
     help_output = run_command([str(bundle_root / "install.sh"), "--help"], cwd=bundle_root, env=os.environ.copy())
     if help_output.returncode != 0:
@@ -251,15 +262,27 @@ def main(argv: list[str] | None = None) -> int:
 @contextmanager
 def moonraker_server(state: str):
     payload = {"result": {"status": {"print_stats": {"state": state}}}}
+    process = {"pid": 100}
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            body = json.dumps(payload).encode("utf-8")
+        def _respond(self, body):
+            encoded = json.dumps(body).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
-            self.wfile.write(body)
+            self.wfile.write(encoded)
+
+        def do_GET(self):
+            if self.path.endswith("/printer/info"):
+                self._respond({"result": {"state": "ready", "process_id": process["pid"]}})
+            else:
+                self._respond(payload)
+
+        def do_POST(self):
+            if self.path.endswith("/machine/services/restart"):
+                process["pid"] += 1
+            self._respond({"result": "ok"})
 
         def log_message(self, fmt, *args):
             return
@@ -281,6 +304,10 @@ def prepare_printer_root(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXTURE_ROOT / "config", root / "config")
     shutil.copy2(FIXTURE_ROOT / "firmware_manifest.json", root / "firmware_manifest.json")
+    homing = REPO_ROOT / "installer/klipper/qidi/homing.py"
+    target = root / "klipper/klippy/extras"
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(homing, target / "homing.py")
     return root
 
 
@@ -291,6 +318,7 @@ def build_env(printer_root: Path, *, moonraker_url: str) -> dict[str, str]:
             "TLTG_OPTIMIZED_PRINTER_DATA_ROOT": str(printer_root),
             "TLTG_OPTIMIZED_FIRMWARE_MANIFEST": str(printer_root / "firmware_manifest.json"),
             "TLTG_OPTIMIZED_MOONRAKER_URL": moonraker_url,
+            "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_root / "klipper"),
         }
     )
     return env

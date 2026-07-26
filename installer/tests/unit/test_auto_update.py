@@ -26,6 +26,7 @@ from installer.runtime.auto_update import (
 from installer.runtime.cli import resolve_runtime_paths
 from installer.runtime.naming import BUNDLE_ROOT_NAME
 from installer.runtime.reporter import PlainReporter
+from installer.runtime.process_restart import write_restart_marker
 from installer.tests.helpers import REPO_ROOT, build_env, copy_base_runtime, MOONRAKER_QUERY_URL, temp_path
 
 
@@ -263,6 +264,36 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(json.loads(state_path(paths).read_text())["latest_checksum"], old_checksum)
         self.assertEqual((bundle_root / "old.txt").read_text(encoding="utf-8"), "old bundle")
+
+    def test_failed_auto_update_child_does_not_advance_checksum(self):
+        printer_root = copy_base_runtime()
+        bundle_root = temp_path("auto-update-bundle-") / BUNDLE_ROOT_NAME
+        bundle_root.mkdir()
+        archive = _release_archive({"install.sh": b"#!/bin/sh\\nexit 1\\n"})
+        checksum = hashlib.sha256(archive).hexdigest()
+        old_checksum = "1" * 64
+        paths = resolve_runtime_paths(bundle_root=bundle_root, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        state_path(paths).write_text(json.dumps({"latest_checksum": old_checksum}), encoding="utf-8")
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if url.endswith(".sha256"):
+                return _Response(f"{checksum} bundle\\n".encode())
+            if url.endswith(".tar.gz"):
+                return _Response(archive)
+            if "printer/objects/query" in url:
+                return _Response(json.dumps({"result": {"status": {"print_stats": {"state": "standby"}}}}).encode())
+            self.fail(url)
+
+        with self.assertRaises(AutoUpdateError):
+            run_auto_update_check(
+                paths=paths,
+                reporter=PlainReporter(io.StringIO()),
+                environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256", "TLTG_AUTO_UPDATE_ARCHIVE_URL": "https://example.invalid/tltg-optimized-macros.tar.gz"},
+                urlopen=urlopen,
+                run=lambda command, **kwargs: subprocess.CompletedProcess(command, 1),
+            )
+        self.assertEqual(json.loads(state_path(paths).read_text())["latest_checksum"], old_checksum)
 
     def test_enable_auto_updates_installs_systemd_units_through_sudo(self):
         printer_root = copy_base_runtime()
@@ -522,3 +553,119 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertTrue(sudo_kwargs)
         self.assertTrue(all(kwargs.get("input") == "qiditech\n" for kwargs in sudo_kwargs))
         self.assertEqual("Auto-updates enabled.\n", stream.getvalue())
+
+    def _pending_restart_marker(self, paths):
+        destination = "klippy/extras/homing.py"
+        target = paths.managed_klipper_root / destination
+        value = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
+        target.write_bytes(value)
+        digest = hashlib.sha256(value).hexdigest()
+        write_restart_marker(
+            paths,
+            (("qidi_homing", destination, digest),),
+            operation="install",
+            process_id=100,
+        )
+
+    def test_pending_activation_runs_before_checksum_fetch_and_survives_checksum_failure(self):
+        printer_root = copy_base_runtime()
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        self._pending_restart_marker(paths)
+        requests = []
+        pids = iter([100, 101])
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request)); requests.append(url)
+            if url.endswith(".sha256"):
+                raise OSError("offline")
+            if url.endswith("/printer/info"):
+                return _Response(json.dumps({"result": {"state": "ready", "process_id": next(pids)}}).encode())
+            if url.endswith("/machine/services/restart"):
+                return _Response(b'{"result":"ok"}')
+            if "printer/objects/query" in url:
+                return _Response(json.dumps({"result": {"status": {"print_stats": {"state": "standby"}}}}).encode())
+            self.fail(url)
+
+        result = run_auto_update_check(paths=paths, reporter=PlainReporter(io.StringIO()), environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256"}, urlopen=urlopen)
+        self.assertEqual(result.action, "skipped-checksum-unavailable")
+        self.assertFalse(paths.restart_marker_path.exists())
+        self.assertLess(requests.index("http://moonraker.invalid/machine/services/restart"), requests.index("https://example.invalid/latest.sha256"))
+
+    def test_pending_activation_precedes_missing_checksum_state_initialization(self):
+        printer_root = copy_base_runtime()
+        checksum = "d" * 64
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        self._pending_restart_marker(paths)
+        pids = iter([100, 101])
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if url.endswith("/printer/info"):
+                return _Response(json.dumps({"result": {"state": "ready", "process_id": next(pids)}}).encode())
+            if url.endswith("/machine/services/restart"):
+                return _Response(b'{"result":"ok"}')
+            if "printer/objects/query" in url:
+                return _Response(json.dumps({"result": {"status": {"print_stats": {"state": "standby"}}}}).encode())
+            if url.endswith(".sha256"):
+                self.assertFalse(paths.restart_marker_path.exists())
+                return _Response(f"{checksum} bundle\\n".encode())
+            self.fail(url)
+
+        result = run_auto_update_check(paths=paths, reporter=PlainReporter(io.StringIO()), environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256"}, urlopen=urlopen)
+        self.assertEqual(result.action, "initialized")
+        self.assertEqual(json.loads(state_path(paths).read_text())["latest_checksum"], checksum)
+
+    def test_pending_activation_failure_does_not_advance_matching_checksum_or_remove_marker(self):
+        printer_root = copy_base_runtime()
+        checksum = "f" * 64
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        self._pending_restart_marker(paths)
+        state_path(paths).write_text(json.dumps({"latest_checksum": checksum}), encoding="utf-8")
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if url.endswith("/printer/info"):
+                return _Response(json.dumps({"result": {"state": "ready", "process_id": 100}}).encode())
+            if "printer/objects/query" in url:
+                return _Response(json.dumps({"result": {"status": {"print_stats": {"state": "standby"}}}}).encode())
+            if url.endswith("/machine/services/restart"):
+                return _Response(b'{"result":"ok"}')
+            self.fail("checksum must not be fetched before activation")
+
+        with self.assertRaises(AutoUpdateError):
+            run_auto_update_check(paths=paths, reporter=PlainReporter(io.StringIO()), environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256"}, urlopen=urlopen)
+        self.assertTrue(paths.restart_marker_path.exists())
+        self.assertEqual(json.loads(state_path(paths).read_text())["latest_checksum"], checksum)
+
+    def test_drifted_pending_target_blocks_auto_update_before_checksum_fetch(self):
+        printer_root = copy_base_runtime()
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        self._pending_restart_marker(paths)
+        (paths.managed_klipper_root / "klippy/extras/homing.py").write_bytes(b"drift")
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if "printer/objects/query" in url:
+                return _Response(json.dumps({"result": {"status": {"print_stats": {"state": "standby"}}}}).encode())
+            self.fail("checksum or restart must not run: " + url)
+
+        with self.assertRaises(AutoUpdateError):
+            run_auto_update_check(paths=paths, reporter=PlainReporter(io.StringIO()), environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256"}, urlopen=urlopen)
+        self.assertTrue(paths.restart_marker_path.exists())
+
+    def test_config_only_auto_update_does_not_call_service_restart(self):
+        printer_root = copy_base_runtime()
+        checksum = "e" * 64
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL))
+        state_path(paths).write_text(json.dumps({"latest_checksum": checksum}), encoding="utf-8")
+        seen = []
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request)); seen.append(url)
+            if url.endswith(".sha256"):
+                return _Response(f"{checksum} bundle\\n".encode())
+            self.fail(url)
+
+        result = run_auto_update_check(paths=paths, reporter=PlainReporter(io.StringIO()), environ={"TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256"}, urlopen=urlopen)
+        self.assertEqual(result.action, "already-current")
+        self.assertFalse(any("machine/services/restart" in item for item in seen))

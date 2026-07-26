@@ -13,6 +13,13 @@ Installer metadata used by the runtime:
 - During install, when `config/saved_variables.cfg [Variables] box_count` requires `value_tN` entries that are missing or empty, the runtime writes each required `value_tN = 'slotN'` without prompting; this saved-variable edit is not recorded in `config/tltg_optimized_state.yaml` and uninstall does not revert it.
 - During interactive install, when existing non-empty `config/saved_variables.cfg [Variables] value_tN` entries do not equal `'slotN'`, the runtime prompts to rewrite each mismatched `value_tN` to `'slotN'`; this saved-variable edit is not recorded in `config/tltg_optimized_state.yaml` and uninstall does not revert it.
 - `installer/package.yaml install.ensure_directories`, `install.managed_tree`, and `install.ensure_lines` define the installer-managed runtime changes under `config/`.
+- `installer/package.yaml install.source_patches[]` maps a bundle payload under `installer/klipper/` to an allowlisted relative `klippy/extras/` destination under `/home/qidi/klipper`, with one stock and desired SHA-256 pair per supported firmware.
+- Source-patch install accepts only the selected firmware stock hash, the selected desired hash, or a validated prior managed desired hash; it preserves the first original bytes and mode in optional schema-version-1 `source_patches[]` state records.
+- Source records use strict base64 bytes, unique IDs/destinations, normalized `klippy/extras/` paths, SHA-256 binding, mode `0000..0777`, and stored-package source-baseline binding from `installer/supported_upgrade_sources.yaml`. Each record firmware must equal the installed-state firmware and the currently detected firmware; a cross-firmware source restoration fails before source or config writes.
+- Source writes and source restoration use same-directory atomic replacement, preserve the recorded mode, verify the resulting SHA-256, and leave unknown live source drift unchanged.
+- Source-inclusive backups carry `.tltg-external-files.json` with detected firmware, unique source patch ID, destination, archive member, SHA-256, and mode. Restore requires the external manifest, parsed backup label, archived source-aware state, and currently detected firmware to agree when each source is present; cross-firmware source restoration fails before live writes. Restore accepts config-only archives only for an explicit pre-source-patch package-version allowlist; current-format, unknown-provenance, and source-ledger archives require complete external metadata.
+- `printer_data/.tltg_optimized_klipper_restart_required` is mode `0600` JSON created before managed Python source changes. It binds activation targets to their expected hashes; marker-driven restart rejects drift.
+- Managed Python activation uses `GET /printer/info`, `POST /machine/services/restart` JSON `{"service":"klipper"}`, and bounded polling for `state: ready` under a different positive non-boolean process ID. `POST /printer/restart` remains config-only.
 - `installer/package.yaml patches.set_options[]` defines guarded `file + section + option` runtime value patches.
 - `installer/package.yaml patches.delete_sections[]` defines guarded `file + section` runtime section deletion patches; each variant stores `expected_normalized_sha256` for the normalized section text that must be present before deletion.
 - Guarded section replacements move `[filament_switch_sensor filament_switch_sensor]` from `config/printer.cfg` and `[gcode_macro RESUME]` from `config/klipper-macros-qd/pause_resume_cancel.cfg` into `config/tltg-optimized-macros/filament.cfg`.
@@ -20,8 +27,8 @@ Installer metadata used by the runtime:
 - `installer/package.yaml install.managed_tree` defines the managed-tree file set validated during install postflight.
 - Install postflight compares each runtime `config/tltg-optimized-macros/*` file SHA-256 against the bundle source SHA-256 before writing `config/tltg_optimized_state.yaml`.
 - `installer/package.yaml postflight.verify_lines` defines additional final install line-verification targets.
-- `installer/supported_upgrade_sources.yaml` defines the supported prior installed package versions and the exact uninstall-allowed guarded patch target tuples (`file + section + option`) for each version.
-- `python3 scripts/bump_installer_version.py <version>` updates `installer/package.yaml package.version`, appends `<version>` to `package.known_versions`, appends the `<version>` uninstall tuple set to `installer/supported_upgrade_sources.yaml`, and updates `installer/klipper/tltg-optimized-macros/globals.cfg variable_package_version`.
+- `installer/supported_upgrade_sources.yaml` defines the supported prior installed package versions and exact uninstall-allowed guarded patch target tuples (`file + section + option`); `inherits` reuses an earlier version's tuple set while source-patch baselines remain version-specific.
+- `python3 scripts/bump_installer_version.py <version>` updates `installer/package.yaml package.version`, appends `<version>` to `package.known_versions`, adds an upgrade-source entry inheriting the prior version's guarded tuples, and updates `installer/klipper/tltg-optimized-macros/globals.cfg variable_package_version`.
 
 State-file contract:
 - Public installer bundles write `config/tltg_optimized_state.yaml schema_version: 1`.
@@ -29,12 +36,13 @@ State-file contract:
 - `system_ledger.policy.system_optimizations` stores `enabled` or `disabled`; `system_ledger.policy.ai_detection` stores `disable`, `keep_enabled`, or `unset`.
 - `system_ledger.restore_preimages` preserves the first preimage captured before the installer changed `/home/qidi/moonraker/moonraker/components/file_manager/metadata.py`, DNS, APT sources, systemd services, or qidiclient GIF files.
 - Auto-update applies or reapplies the Moonraker 3MF metadata patch whenever system reconciliation runs; DNS, APT, service, qidiclient GIF, and AI-service reconciliation require `system_ledger.policy.system_optimizations = enabled`; missing `system_ledger.policy` skips system reconciliation.
-- `config/tltg_optimized_state.yaml` stores package identity, install timestamp, detected install firmware, backup label, managed-tree file hashes, and the guarded patch ledger used for uninstall.
-- `config/tltg_optimized_state.yaml` and `/home/qidi/printer_data/.tltg_optimized_recovery_required` are written with mode `0600`; existing broader file modes are replaced.
-- Public installer bundles accept only schema-valid installed-state ledgers compatible with `schema_version: 1`.
-- Pre-ledger dev installs that do not provide the managed-tree file hashes and guarded patch ledger are unsupported inputs for public uninstall bundles.
-- External tamper detection is not yet implemented, so uninstall trusts a schema-valid local installed-state ledger subject to tuple allowlists and live-value checks.
-- Uninstall validates that every ledger patch target matches an explicit uninstall-allowed `file + section + option` tuple for the stored installed package version from `installer/supported_upgrade_sources.yaml`.
+- `config/tltg_optimized_state.yaml` stores package identity, install timestamp, detected install firmware, backup label, managed-tree file hashes, the guarded patch ledger used for uninstall, and optional managed-source records.
+- Each managed-source record stores the source-patch ID, normalized `klippy/extras/` destination, firmware, original and installed hashes, original mode, strict-base64 original bytes, and a supported install classification. The decoded bytes must match the recorded original hash; IDs and destinations must be unique.
+- Managed-source records bind original and prior desired hashes to the stored package-version source baseline and retain the first original bytes across an allowlisted desired-payload upgrade. Schema-valid but self-consistent arbitrary source bytes are rejected before install or uninstall writes.
+- A schema-version-1 ledger that omits `source_patches` remains valid; a ledger with source records is revalidated before source preflight, backup, uninstall, or marker-driven activation.
+- `config/tltg_optimized_state.yaml`, `/home/qidi/printer_data/.tltg_optimized_recovery_required`, and `/home/qidi/printer_data/.tltg_optimized_klipper_restart_required` are written with mode `0600`; existing broader file modes are replaced.
+- Public installer bundles accept only schema-valid installed-state ledgers compatible with `schema_version: 1`. Pre-ledger dev installs that do not provide managed-tree hashes and the guarded patch ledger are unsupported uninstall inputs.
+- Uninstall validates every ledger patch target against the stored package version's explicit tuple allowlist and validates source records against the stored source baseline allowlist before preserving or restoring live files.
 - Newer public bundles may uninstall older supported installs only when that stored installed package version and its allowed tuple set are present in `installer/supported_upgrade_sources.yaml`.
 
 Managed-tree drift semantics:
@@ -47,6 +55,7 @@ Patch manifest semantics:
 - Existing optimized patch targets provide variants for both `01.01.06.03` and `01.01.06.04`; `.04`-only stock-baseline targets such as closed-loop `trigger_*` options define only `01.01.06.04` variants.
 - Install preflight validates patch targets active for the detected firmware; `.04`-only patch targets are not required on `01.01.06.03` configs.
 - Variant selection changes `expected`/`desired` values for option patches and `expected_normalized_sha256` for section deletion patches.
+- X/Y `homing_speed` migrates from a live `65` to `100` only when the prior valid patch ledger records the same target as installer-managed with desired value `65`; a ledger-free, mismatched, or otherwise changed `65` remains user-modified. The replacement ledger retains the prior original expected value so uninstall restores stock.
 
 Install statuses and terminal messages:
 - Status `checking firmware version` covers reading `/home/qidi/update/firmware_manifest.json`, parsing `SOC.version`, and comparing it against `installer/package.yaml firmware.supported`.
@@ -59,7 +68,7 @@ Install statuses and terminal messages:
 - Failure during `performing preflight checks` returns `Cannot continue because you're missing these things.` and prints the full target report grouped by files, sections, lines, and patch targets; patch-target entries may be missing or ambiguous.
 - Failure during `performing preflight checks` returns `Could not determine printer state.` when local Moonraker `print_stats.state` data is unavailable, malformed, or inconsistent.
 - Failure during `performing preflight checks` returns `Cannot continue while a print is active or paused.` when local Moonraker `print_stats.state` is `printing` or `paused`.
-- Failure during `performing preflight checks` returns `There is not enough free space to continue.` when available free space is less than the reserved total for zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and a safety margin of `max(64 MiB, 20% of the subtotal)`.
+- Failure during `performing preflight checks` returns `There is not enough free space to continue.` when available free space is less than the reserved total for config and external-source backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and a safety margin of `max(64 MiB, 20% of the subtotal)`.
 - The Moonraker printer-state query runs before legacy manual-copy detection; an active or paused print stops before any legacy rollback prompt or config write.
 - When no installer state file exists and legacy manually-copied optimized config markers are found in `config/printer.cfg`, `config/klipper-macros-qd/filament.cfg`, `config/klipper-macros-qd/start_end.cfg`, `config/klipper-macros-qd/kinematics.cfg`, `config/klipper-macros-qd/globals.cfg`, or `config/tltg-optimized-macros/`, interactive install prompts before normal install confirmation.
 - Accepted legacy rollback creates a `tltg-optimized-macros-before-optimize-legacy-manual-reset-...zip` backup of `config/`, restores the bundled QIDI stock snapshot from `installer/stock/qidi-max4-defaults/firmwares/<detected-firmware>/config/`, removes `config/tltg-optimized-macros/`, preserves `config/MCU_ID.cfg`, `config/box.cfg`, `config/fluidd.cfg`, `config/saved_variables.cfg`, and any direct `config/KAMP` symlink, restarts `qidi-client.service`, then continues with normal install preflight and installation.
@@ -67,7 +76,7 @@ Install statuses and terminal messages:
 - Interactive yes/no prompts backed by `installer/runtime/interaction.py` strip surrounding whitespace, uppercase the response, accept `Y` or `YES`, decline `N` or `NO`, and re-render the same prompt for any other input including blank input.
 - After install preflight succeeds and before backup creation when `--dry-run` is not active, the runtime prompts `Would you like us to take a backup of your configs and proceed with installation?`.
 - Install confirmation input normalized to `N` or `NO` returns `Installation cancelled.` and exits zero before backup creation or any write under `config/`.
-- Status `creating backup` covers backup label creation and `.zip` archive creation for `/home/qidi/printer_data/config`; backup creation fails when `config/` is missing, not a directory, empty, or contains symlinks other than direct `config/KAMP` and `config/fluidd.cfg` symlinks.
+- Status `creating backup` covers backup label creation and `.zip` archive creation for `/home/qidi/printer_data/config` and each managed external source preimage. Backup creation fails when `config/` is missing, not a directory, empty, or contains symlinks other than direct `config/KAMP` and `config/fluidd.cfg` symlinks, or when an external source target is not a regular non-symlink file.
 - After a successful new installer backup is created during `install`, the runtime prunes installer-created backup zip files under `/home/qidi/printer_data/` to retain only the newest three archives across install and uninstall backup prefixes; unrelated `.zip` files are ignored and `--dry-run` never prunes.
 - Status `installing` starts before the first runtime write under `config/` and stays active through optional `config/saved_variables.cfg [Variables] enable_box = 1` and `value_tN = 'slotN'` prompt/writes, drift detection, `install.managed_tree`, `patches.set_options[]`, `patches.delete_sections[]`, `install.ensure_lines`, managed-tree postflight verification, `postflight.verify_lines`, and the final state-file write.
 - Final install success returns `Installed.` after `config/tltg_optimized_state.yaml` is written.
@@ -106,25 +115,23 @@ Install statuses and terminal messages:
 - The installed auto-update service unsets `TLTG_AUTO_UPDATE_ARCHIVE_URL`, `TLTG_AUTO_UPDATE_CHECKSUM_URL`, `TLTG_INSTALLER_ARCHIVE_URL`, and `TLTG_INSTALLER_CHECKSUM_URL` before running `~/tltg-optimized-macros/auto-update.sh --run`.
 - Each `auto-update-check` run first checks Moonraker print state; when Klipper is reachable and the printer is idle, it compares `config/saved_variables.cfg [Variables] box_count` against `config/tltg_optimized_runtime_state.json last_observed_box_count`, writes missing or empty required `value_tN = 'slotN'` entries after a changed count, and updates the observed count. If the printer is busy or state is unavailable, the QIDI Box tool-slot reconcile is skipped without writing.
 - Auto-update systemd setup failure prints `Could not enable auto-updates. <reason>` and does not change the successful install result.
-- After auto-update repair, after the auto-update prompt returns, or when auto-update prompting is skipped, the runtime prompts `Would you like me to restart Klipper to apply changes?`.
-- Accepted restart confirmation triggers a local Moonraker `POST /printer/restart` request.
-- Failed automatic restart prints `Could not restart Klipper automatically. Restart Klipper to apply changes.` and does not change the successful install result.
-- Restart confirmation input normalized to `N` or `NO` returns without restarting and prints `Restart Klipper to apply changes.`.
-- `install.sh --yes` suppresses interactive legacy rollback confirmation, install confirmation, restart confirmation, and auto-update setup prompts; preflight checks still run. Existing auto-update systemd units are still repaired without prompting. If legacy manually-copied optimized configs are detected, `--yes` backs up and restores stock-managed configs before install. If QIDI Box enablement or tool-slot correction is detected, `--yes` applies the saved-variable change without prompting.
+- After auto-update repair, after the auto-update prompt returns, or when auto-update prompting is skipped, a config-only install follows the existing `POST /printer/restart` confirmation path.
+- When a managed Python source changed or an activation marker is retained, interactive install instead offers a Klipper service-process restart. Declining preserves the verified install and marker; a failed verification preserves the marker and reports manual service-restart guidance.
+- `install.sh --yes` suppresses interactive legacy rollback, install, service-restart, config-restart, and auto-update setup prompts; preflight checks still run. Existing auto-update systemd units are still repaired without prompting. If Python activation is pending, `--yes` requires an idle-printer verified service restart and returns nonzero if it cannot be verified. If legacy manually-copied optimized configs are detected, `--yes` backs up and restores stock-managed configs before install. If QIDI Box enablement or tool-slot correction is detected, `--yes` applies the saved-variable change without prompting.
 - `install.sh -h` and `install.sh --help` print `QIDI Max 4 Optimized installer <package.version>` before usage text, where `<package.version>` is read from `installer/package.yaml package.version`.
 - `install.sh -v` and `install.sh --version` print `QIDI Max 4 Optimized installer <package.version>` and exit without running install, uninstall, preflight, or runtime checks.
 
 Auto-update runtime behavior:
 - `auto-update.sh --run` calls installer mode `auto-update-check`.
-- `auto-update-check` acquires `/home/qidi/printer_data/.tltg_optimized_installer.lock`, stops when `/home/qidi/printer_data/.tltg_optimized_recovery_required` exists, fetches the latest release checksum from GitHub, and compares it to `config/tltg_optimized_auto_update_state.json latest_checksum`.
-- Checksum fetch failure prints `Auto-update skipped because the latest release checksum could not be fetched.`, exits zero, and does not run the installer.
-- Matching checksums print `Auto-update check: already current.` and do not run the installer bundle replacement path.
+- `auto-update-check` acquires `/home/qidi/printer_data/.tltg_optimized_installer.lock` and stops when `/home/qidi/printer_data/.tltg_optimized_recovery_required` exists. A retained Klipper activation marker is handled before checksum fetch, matching-checksum return, or missing-state initialization: the runtime checks that the printer is idle, validates every marker target against the active source-patch allowlist and expected hash, and retries verified service activation.
+- After pending activation is resolved, checksum fetch failure prints `Auto-update skipped because the latest release checksum could not be fetched.`, exits zero, and does not run the installer. Pending activation is still attempted before this result.
+- Matching checksums print `Auto-update check: already current.` and do not run the installer bundle replacement path; a matching checksum never bypasses retained source activation.
 - Matching checksums still reconcile the Moonraker 3MF metadata patch when system reconciliation runs; opted-in OS hardening is reconciled when `system_ledger.policy.system_optimizations = enabled`, the printer is idle, and the live OS state differs from the desired hardening state.
 - Missing checksum state atomically writes the fetched checksum to `config/tltg_optimized_auto_update_state.json`, prints `Auto-update check: initialized latest release state.`, and does not run the installer.
 - Changed checksums query local Moonraker `print_stats.state`; `printing` or `paused` prints `Auto-update skipped because a print is active or paused.` and does not run the installer.
 - Unknown printer state prints `Auto-update skipped because printer state could not be determined.` and does not run the installer.
 - Idle changed checksums fetch `tltg-optimized-macros.tar.gz`, verify the archive SHA-256 against the fetched checksum, validate that every tar member is under `tltg-optimized-macros/`, reject `..`, absolute paths, non-file/non-directory entries, and archives missing `tltg-optimized-macros/install.sh`, replace `~/tltg-optimized-macros` with the staged archive, and run `/bin/sh ~/tltg-optimized-macros/install.sh --yes --plain` while the parent `auto-update-check` process holds the installer lock.
-- Successful auto-update atomically writes the new checksum to `config/tltg_optimized_auto_update_state.json` and prints `Auto-update complete.`.
+- Successful auto-update atomically writes the new checksum to `config/tltg_optimized_auto_update_state.json` and prints `Auto-update complete.` only after the child installer returns successfully. A source-changing child whose required service restart fails retains its installed ledger and activation marker, returns nonzero, and does not advance `latest_checksum`.
 - `auto-update.sh --enable-systemd` installs the systemd service/timer, runs `systemctl daemon-reload`, runs `systemctl enable tltg-optimized-auto-update.timer`, and runs `systemctl restart tltg-optimized-auto-update.timer` through sudo without running the main install flow; sudo uses `TLTG_OPTIMIZED_SUDO_PASSWORD` when set, otherwise QIDI's public default password `qiditech`, and prompts for a password when the initial sudo attempt fails and input is interactive.
 - `auto-update.sh --disable-systemd` disables `tltg-optimized-auto-update.timer`, removes the service/timer unit files from `/etc/systemd/system/`, reloads systemd, and removes `config/tltg_optimized_auto_update_state.json`; sudo uses `TLTG_OPTIMIZED_SUDO_PASSWORD` when set, otherwise QIDI's public default password `qiditech`, and prompts for a password when the initial sudo attempt fails and input is interactive.
 
@@ -141,7 +148,7 @@ Uninstall statuses and terminal messages:
 - Failure during `performing uninstall preflight checks` returns `There is not enough free space to continue.` when available free space is less than the reserved total for zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and a safety margin of `max(64 MiB, 20% of the subtotal)`.
 - After uninstall preflight succeeds and before backup creation when `--dry-run` is not active, the runtime prompts `Are you sure you want to uninstall?`.
 - Uninstall confirmation input normalized to `N` or `NO` returns `Uninstall cancelled.` and exits zero before backup creation or any write under `config/`.
-- Status `creating backup` covers uninstall backup label creation and `.zip` archive creation for `/home/qidi/printer_data/config`; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
+- Status `creating backup` covers uninstall backup label creation and `.zip` archive creation for `/home/qidi/printer_data/config` plus every ledger-declared managed external source; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
 - After a successful new installer backup is created during `uninstall`, the runtime prunes installer-created backup zip files under `/home/qidi/printer_data/` to retain only the newest three archives across install and uninstall backup prefixes; unrelated `.zip` files are ignored and `--dry-run` never prunes.
 - Status `uninstalling` starts before the first uninstall write under `config/` and stays active through guarded patch reversal, include removal, managed-tree removal, uninstall postflight, and final state-file deletion.
 - Final uninstall success returns `Uninstalled.` after uninstall postflight succeeds and `config/tltg_optimized_state.yaml` is deleted.
@@ -154,10 +161,8 @@ Uninstall statuses and terminal messages:
 - `install.sh --uninstall --keep-system-optimizations` skips system setting restore while uninstalling Klipper config changes.
 - After final uninstall success output, uninstall removes `/etc/systemd/system/tltg-optimized-auto-update.service` and `/etc/systemd/system/tltg-optimized-auto-update.timer` through sudo when either unit file exists; sudo uses `TLTG_OPTIMIZED_SUDO_PASSWORD` when set, otherwise QIDI's public default password `qiditech`, and prompts for a password when the initial sudo attempt fails and input is interactive.
 - Auto-update removal failure prints `Could not disable auto-updates. <reason>` and does not change the successful uninstall result.
-- After auto-update removal returns or when no auto-update unit is installed, the runtime prompts `Would you like me to restart Klipper to apply changes?`.
-- Accepted restart confirmation triggers a local Moonraker `POST /printer/restart` request.
-- Failed automatic restart prints `Could not restart Klipper automatically. Restart Klipper to apply changes.` and does not change the successful uninstall result.
-- Restart confirmation input normalized to `N` or `NO` returns without restarting and prints `Restart Klipper to apply changes.`.
+- After auto-update removal returns or when no auto-update unit is installed, uninstall uses the existing configuration-restart prompt only when no managed Python source was restored and no activation marker exists.
+- When uninstall restores managed Python source, it creates the activation marker before restoration and offers a verified service-process restart. It restores the original bytes and mode only while live source still equals the recorded desired hash, treats already-restored original source as a no-op, and preserves unknown drift without overwriting it.
 
 Interrupt handling:
 - `Ctrl+C` raises `KeyboardInterrupt`, prints `Interrupted. No further installer actions will run.`, returns exit code `130`, and does not print a Python traceback.
@@ -184,7 +189,7 @@ Internal lock and recovery behavior:
 - The runtime checks `/home/qidi/printer_data/.tltg_optimized_recovery_required` before visible status changes.
 - When the recovery sentinel exists, the run returns `Previous recovery did not complete. Restore from backup before continuing.` and stops before any further action.
 - The documented safe clear path is `install.sh --clear-recovery-sentinel` only after restoring from the printed backup and verifying the runtime tree is consistent.
-- `install.sh --clear-recovery-sentinel` clears `/home/qidi/printer_data/.tltg_optimized_recovery_required` only when the current `config/` tree byte-matches the recorded backup zip path stored in that sentinel, excluding ignored direct `config/KAMP` and `config/fluidd.cfg` symlinks.
+- `install.sh --clear-recovery-sentinel` clears `/home/qidi/printer_data/.tltg_optimized_recovery_required` only when the current `config/` tree byte-matches the recorded backup zip path, excluding ignored direct `config/KAMP` and `config/fluidd.cfg` symlinks, and every declared external source snapshot matches its archive bytes.
 
 Debug logging:
 - `install.sh --debug` emits human-readable `debug | event=...` lines to stdout only.
@@ -195,10 +200,10 @@ Manual restore helper:
 - Release bundles ship `restore.sh` beside `install.sh`.
 - `restore.sh` uses `RichReporter` for restore backup lists, selected-backup details, destructive restore warning, and restore verification output when stdout is an interactive TTY and `TERM` is not `dumb`; `restore.sh --plain`, non-TTY stdout, `TERM=dumb`, or a missing vendored Rich dependency use `PlainReporter`.
 - `restore.sh` lists installer-created backup zip files from `/home/qidi/printer_data/` by archive timestamp and label when no `--backup <path>` argument is provided.
-- `restore.sh --backup <path>` restores the specified archive only when it contains a valid, non-empty archived `config/` snapshot.
-- `restore.sh` warns that restore overwrites current config changes under `/home/qidi/printer_data/config`, requires an explicit `RESTORE` confirmation, stages the selected archive through a temporary directory, validates the staged `config/` snapshot before any live write, copies the staged snapshot to a full replacement tree under `/home/qidi/printer_data/`, preserves ignored direct `config/KAMP` and `config/fluidd.cfg` symlinks when absent from the selected archive, swaps the replacement tree into `/home/qidi/printer_data/config` with directory renames, rolls back the original tree when the replacement rename fails, and verifies the restored tree before success output.
+- `restore.sh --backup <path>` restores the specified archive only when it contains a valid, non-empty archived `config/` snapshot and, when required by package provenance or archived state, a complete valid external-source manifest.
+- `restore.sh` warns that restore overwrites current config changes under `/home/qidi/printer_data/config`, requires an explicit `RESTORE` confirmation, stages and validates the config snapshot and external source members before any live write, rejects external snapshots whose firmware provenance differs from the currently detected firmware, copies the staged snapshot to a full replacement tree under `/home/qidi/printer_data/`, preserves ignored direct `config/KAMP` and `config/fluidd.cfg` symlinks when absent from the selected archive, swaps the replacement tree into `/home/qidi/printer_data/config` with directory renames, atomically restores allowlisted external sources with rollback on partial failure, and verifies every restored root before success output.
 - `restore.sh` does not clear `/home/qidi/printer_data/.tltg_optimized_recovery_required`.
-- After a valid restore when the recovery sentinel exists, the clear step remains `install.sh --clear-recovery-sentinel`.
+- After a valid restore when the recovery sentinel exists, `install.sh --clear-recovery-sentinel` remains the clear step; it requires the config and every declared external source snapshot to match the recorded archive.
 Required install flow:
 1. Acquire the single-run advisory lock before visible status changes unless `auto-update-check` is already holding it for the child install process.
 2. Stop the run before visible status changes when `/home/qidi/printer_data/.tltg_optimized_recovery_required` exists.
@@ -213,29 +218,29 @@ Required install flow:
 11. Compare the stored package version from `config/tltg_optimized_state.yaml` against `installer/package.yaml package.known_versions` when `config/tltg_optimized_state.yaml` exists.
 12. Stop the run before backup or writes when previous install-state validation fails.
 13. Set the visible status to `performing preflight checks` after package-version validation passes.
-14. Reject symlink components in runtime paths under `/home/qidi/printer_data` for `config/`, managed-tree destination paths, state file paths, include-line files, preflight target files, patch target files, postflight target files, and backup source paths before creating a backup or modifying runtime files.
-15. Validate `installer/klipper/tltg-optimized-macros/` exists as a real non-empty directory and contains every file listed in `installer/package.yaml install.managed_tree.required_files[]` before creating a backup or modifying runtime files.
+14. Reject symlink components in runtime config paths and in every managed destination component under `/home/qidi/klipper` before creating a backup or modifying runtime files.
+15. Validate the optimized macro tree and every source-patch payload as real regular bundle files before creating a backup or modifying runtime files. Source payload validation includes Python compilation and the selected firmware desired hash.
 16. Validate every path in `installer/package.yaml preflight.required_files` before creating a backup or modifying runtime files.
 17. Validate every `file + section` target in `installer/package.yaml preflight.required_sections` before creating a backup or modifying runtime files.
 18. Validate every `file + line` target in `installer/package.yaml preflight.required_lines` before creating a backup or modifying runtime files.
 19. Validate every unique `file + section + option` target in `installer/package.yaml patches.set_options[]` and every unique `file + section` target in `installer/package.yaml patches.delete_sections[]` before creating a backup or modifying runtime files.
 20. Query local Moonraker `http://127.0.0.1:7125/printer/objects/query?print_stats` and inspect `print_stats.state` during preflight.
-21. Preflight free space for zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and the configured safety margin before creating a backup or modifying runtime files.
+21. Preflight free space for config and managed-source zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and the configured safety margin before creating a backup or modifying runtime files.
 22. Collect every missing file, section, line, and patch-target result in one pass instead of stopping on the first missing target.
 23. Stop the run before backup or writes when any install preflight target is missing, printer-state data cannot be trusted, the printer is printing or paused, or free space is insufficient.
 24. During non-dry-run install, prompt `Would you like us to take a backup of your configs and proceed with installation?`; strip surrounding whitespace, uppercase the response, and re-render the prompt for input that does not normalize to `Y`, `YES`, `N`, or `NO`.
 25. During non-dry-run install, print `Installation cancelled.` and exit zero before backup or writes when the confirmation input normalizes to `N` or `NO`.
 26. Set the visible status to `creating backup` after aggregated preflight checks pass and install confirmation succeeds.
 27. Build the backup label from `installer/package.yaml backup.label_prefix`, the detected install firmware, `installer/package.yaml package.version`, and an install timestamp.
-28. Create a `.zip` backup of `/home/qidi/printer_data/config` before any write to any file under `config/`; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
-29. Set the visible status to `installing` after the `.zip` backup completes.
+28. Create a `.zip` backup of `/home/qidi/printer_data/config` and every managed external source preimage before the first source or config write; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
+29. Set the visible status to `installing` after the `.zip` backup completes. Classify each managed source as stock, already desired, prior-managed upgrade, original no-op, or unsupported drift before the backup; unsupported drift stops before the backup.
 30. When an existing installed-state ledger is present, compare current managed-tree file hashes against `managed_tree.files[]` from that ledger and record local managed-tree drift before mirror mode.
 31. Compare prior `managed_tree.files[]` ledger hashes against the new bundle contents to distinguish expected bundle-version changes from local drift.
 32. When `config/box.cfg [box_extras]` exists, `config/saved_variables.cfg [Variables] box_count > 0`, and `[Variables] enable_box == 0`, prompt to set `enable_box = 1` before managed-tree writes; accepted confirmation writes only `config/saved_variables.cfg` and does not add the value to `config/tltg_optimized_state.yaml`.
 33. When `min(config/saved_variables.cfg [Variables] box_count * 4, 16)` requires missing or empty `value_tN` entries, write each required entry to `'slotN'` before managed-tree writes; write only `config/saved_variables.cfg` and do not add the values to `config/tltg_optimized_state.yaml`.
 34. When existing non-empty `config/saved_variables.cfg [Variables] value_tN` entries do not equal `'slotN'`, prompt to write each mismatched entry to `'slotN'` before managed-tree writes; accepted confirmation writes only `config/saved_variables.cfg` and does not add the values to `config/tltg_optimized_state.yaml`.
-35. Create each directory listed in `installer/package.yaml install.ensure_directories` before mirroring installer-managed files.
-36. Mirror `installer/klipper/tltg-optimized-macros/` into runtime `config/tltg-optimized-macros/` according to `installer/package.yaml install.managed_tree` without adding the optimized include line yet.
+35. Create the activation marker before each managed Python source write, preserving the pre-restart process identity and expected activation hashes.
+36. Atomically deploy applicable managed Python payloads with the destination mode preserved and a post-write hash check, then create each managed config directory and mirror the optimized macro tree without adding the optimized include line yet.
 37. Select the matching `variants[]` entry in each `installer/package.yaml patches.set_options[]` block with a matching `variants[].firmwares[]` entry.
 38. Read the current value for each `file + section + option` target in `installer/package.yaml patches.set_options[]` from the runtime file before writing.
 39. Write `desired` when the current runtime value equals `expected` in the selected `variants[]` entry.
@@ -246,19 +251,19 @@ Required install flow:
 44. Record a section deletion patch as user-modified when the current section exists and its normalized SHA-256 does not match `variants[].expected_normalized_sha256`.
 45. Ensure `[include tltg-optimized-macros/*.cfg]` exists in runtime `config/printer.cfg` after `[include klipper-macros-qd/*.cfg]` according to `installer/package.yaml install.ensure_lines`, moving or deduping active include lines as needed, only after `patches.delete_sections[]` processing completes.
 46. Validate every runtime file implied by `installer/package.yaml install.managed_tree` by SHA-256 and every `file + line` target in `installer/package.yaml postflight.verify_lines` after the managed tree mirror, guarded patches, and include-line write complete.
-47. Write `config/tltg_optimized_state.yaml` only after the install postflight checks pass.
-48. Store `package.id`, `package.version`, detected install firmware, backup label, install timestamp, managed-tree file hashes, and the guarded patch ledger in `config/tltg_optimized_state.yaml`.
-49. Trigger automatic rollback on any failure after the first runtime write, not only on postflight failure.
+47. Write `config/tltg_optimized_state.yaml` only after source and config postflight checks pass.
+48. Store package identity, detected install firmware, backup label, install timestamp, managed-tree hashes, guarded patch ledger, and the first source preimage records in `config/tltg_optimized_state.yaml`.
+49. Trigger automatic rollback of tracked config files, external source files, and the activation marker on any failure after the first runtime write, not only on postflight failure.
 50. Leave the previous `config/tltg_optimized_state.yaml` content unchanged when the run stops before install postflight completion.
 51. Print `Installed.`, then the final user-modified patch report, then `Managed tree drift overwritten:` when present.
 52. Repair existing auto-update systemd units before restart prompting; when no auto-update unit exists, prompt for auto-update setup when input is interactive.
 53. During auto-update repair or accepted auto-update setup confirmation, attempt to fetch and store the latest release checksum, authenticate with sudo, install the systemd service/timer units, reload systemd, enable `tltg-optimized-auto-update.timer`, and restart `tltg-optimized-auto-update.timer`.
 54. Continue systemd timer setup when the initial checksum seed fails; the first successful timer check initializes `config/tltg_optimized_auto_update_state.json` without installing when no previous state exists.
 55. Treat auto-update repair and setup failure as non-fatal after install success.
-56. Prompt `Would you like me to restart Klipper to apply changes?`; strip surrounding whitespace, uppercase the response, and re-render the prompt for input that does not normalize to `Y`, `YES`, `N`, or `NO`.
-57. During accepted restart confirmation, request local Moonraker `POST /printer/restart`.
-58. Print `Could not restart Klipper automatically. Restart Klipper to apply changes.` when the restart request fails.
-59. Print `Restart Klipper to apply changes.` and exit without restarting when the restart confirmation input normalizes to `N` or `NO`.
+56. When no Python activation is pending, use the existing configuration-restart prompt and `POST /printer/restart` behavior.
+57. When Python activation is pending, offer a service-process restart that verifies `GET /printer/info`, posts `{"service":"klipper"}` to `/machine/services/restart`, and polls for `state: ready` under a different positive non-boolean process ID.
+58. Retain the activation marker and print service-restart guidance when interactive verification fails or is declined.
+59. Require the same verified service restart without prompting under `--yes`; failure returns nonzero while retaining the installed state and marker.
 
 Required uninstall flow:
 1. Acquire the single-run advisory lock before visible status changes.
@@ -274,35 +279,35 @@ Required uninstall flow:
 11. Print `Nothing to uninstall.` and exit zero before backup or writes when no installation markers are present after the non-patch marker check and any valid-ledger patch-marker check.
 12. Stop the run before backup or writes when any non-patch installation marker remains but the installed-state ledger is missing, corrupt, schema-incompatible, lacks the required uninstall ledger fields, stores an unsupported installed package version, or contains patch tuples outside the explicit allowed tuple set for that stored installed package version.
 13. Set the visible status to `performing uninstall preflight checks`.
-14. Reject symlink components in runtime paths under `/home/qidi/printer_data` for `config/printer.cfg`, managed-tree paths, state-file paths, include-line paths, and every patch target from the installed-state ledger.
-15. Validate `config/printer.cfg`, managed-tree paths, and every patch target from the installed-state ledger.
+14. Reject symlink components in runtime config paths and every ledger-declared managed destination component under `/home/qidi/klipper`.
+15. Validate `config/printer.cfg`, managed-tree paths, every patch target from the installed-state ledger, and every managed external source target.
 16. Resolve every uninstall patch target to exactly one active section and exactly one active option assignment; zero matches are missing targets and multiple matches are ambiguous targets.
 17. Query local Moonraker `http://127.0.0.1:7125/printer/objects/query?print_stats` and inspect `print_stats.state` during uninstall preflight.
-18. Preflight free space for zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and the configured safety margin before creating a backup or modifying runtime files.
+18. Preflight free space for config and managed-source zip backup bytes, rollback preimages, new/rewritten files, same-directory atomic temp files, and the configured safety margin before creating a backup or modifying runtime files.
 19. Detect and record managed-tree drift against the installed-state file manifest before deletion.
 20. Stop the run before backup or writes when uninstall preflight targets are missing or ambiguous, printer-state data cannot be trusted, the printer is printing or paused, or free space is insufficient.
 21. During non-dry-run uninstall, prompt `Are you sure you want to uninstall?`; strip surrounding whitespace, uppercase the response, and re-render the prompt for input that does not normalize to `Y`, `YES`, `N`, or `NO`.
 22. During non-dry-run uninstall, print `Uninstall cancelled.` and exit zero before backup or writes when the confirmation input normalizes to `N` or `NO`.
 23. Set the visible status to `creating backup`.
 24. Build the uninstall backup label as `tltg-optimized-macros-before-uninstall-<current-firmware-or-unknown-firmware>-<stored-package.version>-<timestamp>`, where the exact fallback token is `unknown-firmware`.
-25. Create a `.zip` backup of `/home/qidi/printer_data/config` before any uninstall write to any file under `config/`; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
-26. Set the visible status to `uninstalling`.
-27. For each guarded patch target from the installed-state ledger, write recorded `expected` only when the current runtime value still matches the recorded `desired` value.
+25. Create a `.zip` backup of `/home/qidi/printer_data/config` and each ledger-declared managed external source before the first uninstall source or config write; direct `config/KAMP` and `config/fluidd.cfg` symlinks are allowed and are not traversed into the backup archive.
+26. Set the visible status to `uninstalling` and create the activation marker before restoring any managed Python source.
+27. Restore each recorded original source atomically only while the live hash equals its recorded desired hash, then apply guarded config patch reversal only when the current runtime value still matches its recorded desired value.
 28. Record a silent no-op for uninstall when the current runtime value already matches the recorded `expected` value.
 29. Record that patch as user-modified when the current runtime value differs from both recorded `expected` and recorded `desired` values.
 30. Remove the active `[include tltg-optimized-macros/*.cfg]` line from runtime `config/printer.cfg`.
 31. Remove runtime `config/tltg-optimized-macros/` after managed-tree drift reporting.
-32. Validate uninstall postflight: the include line is absent, the managed tree is absent, and reverted patch targets are at recorded `expected` values unless recorded as user-modified.
+32. Validate uninstall postflight: the include line is absent, the managed tree is absent, restored sources match their recorded original hashes, and reverted patch targets are at recorded `expected` values unless recorded as user-modified.
 33. Delete `config/tltg_optimized_state.yaml` only after uninstall postflight passes.
-34. Trigger automatic rollback on any failure after the first uninstall write, not only on uninstall postflight failure.
+34. Trigger automatic rollback of tracked config files, external source files, and the activation marker on any failure after the first uninstall write, not only on uninstall postflight failure.
 35. Keep `config/tltg_optimized_state.yaml` unchanged when uninstall stops before uninstall postflight completion.
 36. Print `Uninstalled.`, then preserved user-modified patch targets, then managed-tree drift when present.
 37. Remove the auto-update systemd service/timer after successful uninstall when either unit file exists.
 38. Treat auto-update removal failure as non-fatal after uninstall success.
-39. Prompt `Would you like me to restart Klipper to apply changes?`; strip surrounding whitespace, uppercase the response, and re-render the prompt for input that does not normalize to `Y`, `YES`, `N`, or `NO`.
-40. During accepted restart confirmation, request local Moonraker `POST /printer/restart`.
-41. Print `Could not restart Klipper automatically. Restart Klipper to apply changes.` when the restart request fails.
-42. Print `Restart Klipper to apply changes.` and exit without restarting when the restart confirmation input normalizes to `N` or `NO`.
+39. Use the existing configuration-restart prompt only when no managed Python source was restored and no activation marker exists.
+40. When Python activation is pending, offer the verified service-process restart described for install.
+41. Keep the marker and report manual service-restart guidance if interactive verification fails or is declined.
+42. Under `--yes`, require verified service activation without prompting and retain the marker on failure.
 Patch semantics:
 - Manifest validation requires every `installer/package.yaml patches.set_options[]` and `patches.delete_sections[]` block to provide at least one firmware-scoped `variants[]` entry, reference only supported firmware values, and define no duplicate variant for the same firmware; install preflight validates only patch targets active for the detected firmware.
 - `installer/package.yaml patches.set_options[] variants[].expected` is the runtime value the installer expects to find before writing a guarded install patch.
