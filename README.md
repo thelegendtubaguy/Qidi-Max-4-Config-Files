@@ -65,7 +65,7 @@ TLTG_SET_BOX_TEMP BOX=1 TARGET=0
 
 The macro appears in Fluidd's Macros panel after install and Klipper restart. If the panel is not visible, edit the Fluidd layout and enable the Macros panel.
 
-![Fluidd TLTG_SET_BOX_TEMP macro](docs/images/fluidd-tltg-set-box-temp-macro.png)
+![Fluidd TLTG_SET_BOX_TEMP macro](.github/images/fluidd-tltg-set-box-temp-macro.png)
 
 ### Helpful Klipper tools
 
@@ -95,7 +95,7 @@ TLTG_FILAMENT_SENSOR ENABLE=1
 
 The console identifies the toolhead sensor trip and the active pause policy.
 
-![Filament sensor console output](docs/images/tltg-filament-sensor-console.png)
+![Filament sensor console output](.github/images/tltg-filament-sensor-console.png)
 
 ### Slicer Machine GCode Updates
 
@@ -148,11 +148,9 @@ If restore completed and the recovery sentinel is still present, clear it with:
 cd ~/tltg-optimized-macros && ./install.sh --clear-recovery-sentinel
 ```
 
-## Documentation
+## Testing
 
-- [Behavior differences versus stock](docs/optimized_vs_stock.md)
-- [QIDI box internals and `BOX_PRINT_START`](docs/qidi_box/box_print_start_notes.md)
-- [Want to help with testing?](TESTING.md)
+See [TESTING](TESTING.md) to help validate releases.
 
 ## Development
 

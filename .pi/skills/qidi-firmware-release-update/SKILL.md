@@ -128,7 +128,7 @@ When implementation is requested:
 
 - Review active stock macros before carrying vendor behavior into optimized macros.
 - If QIDI changes cancel ordering, compare `CANCEL_PRINT` and `OPTIMIZED_CANCEL_PRINT_ON_ERROR`; preserve optimized no-park/no-toolhead-move semantics unless the user approves movement.
-- If QIDI changes filament names, update local docs/tests that assert official material metadata; do not rename unrelated stock tables such as `drying.conf` unless QIDI changed them upstream.
+- If QIDI changes filament names, update `openspec/observations/qidi-box/material-metadata.md` and tests that assert official material metadata; do not rename unrelated stock tables such as `drying.conf` unless QIDI changed them upstream.
 - If QIDI changes start-print behavior, follow the start-print path contract in `AGENTS.md` before editing start-path sources.
 
 ### Version metadata
@@ -166,19 +166,19 @@ scripts/smoke_test_installer_bundle.py
 installer/tests/fixtures/runtime/base/
 ```
 
-## Documentation to update
+## OpenSpec content to update
 
-Update docs when behavior, installer flow, snapshot layout, or assumptions change:
+Update the applicable authorities when behavior, installer flow, snapshot layout, or external assumptions change:
 
 ```text
-docs/installer_runtime_contract.md
-docs/installer_restore_helper.md      # only if restore/recovery behavior changes
-docs/optimized_vs_stock.md
-docs/qidi_box/*.md                    # only if QIDI Box/material metadata changes
-openspec/specs/<capability>/spec.md   # when syncing OpenSpec
+openspec/specs/installer-lifecycle/spec.md
+openspec/specs/optimized-printer-behavior/spec.md
+openspec/contracts/gcode-paths/*                 # only for start-path changes
+openspec/observations/qidi-platform.md
+openspec/observations/qidi-box/*.md              # only for QIDI Box/material evidence
 ```
 
-Reference-doc writing rules apply: state current behavior directly, include paths/commands, avoid process narration.
+Specification and observation writing rules in `AGENTS.md` apply: state current behavior directly, preserve evidence qualifiers, include paths/commands where useful, and avoid process narration.
 
 ## Required validation
 
