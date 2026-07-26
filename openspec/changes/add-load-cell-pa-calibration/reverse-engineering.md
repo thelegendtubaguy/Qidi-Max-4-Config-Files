@@ -2,9 +2,9 @@
 
 ## Current status
 
-`installer/klipper/extras/tltg_pa_calibration.py` contains a hardware-tested non-homing CS1237 direct-response path. It schedules bounded `query_cs1237_read` commands and receives `query_cs1237_data` responses without calling the probe homing path. Idle and stationary direct-trapq captures are recorded, but ADC conversion freshness and conversion-time alignment are not yet validated.
+`installer/klipper/extras/tltg_pa_calibration.py` retains bounded non-homing CS1237 characterization code, but the scheduled direct-response path is rejected for production. Firmware returns cached state without conversion identity, repeated captures lose distinct responses, and `query_cs1237_config_r` is not a side-effect-free state check.
 
-`CALIBRATION_ENABLED = False` remains mandatory. `TLTG_PA_CALIBRATE TEMP=<celsius> NOZZLE=<mm>` returns `PA_CALIBRATION_UNVALIDATED` before heating, homing, motion, extrusion, capture, or pressure-advance changes. The production code includes fail-closed preflight, exact trapq runtime hashes, nozzle resource-plan validation, stationary lead-in/transition/lead-out planning, pulse grouping, orchestration ordering, idempotent cleanup, and result/failure formatting. Production nozzle plans remain `hardware_validated=False`, and no physical backend is wired to the public command.
+`CALIBRATION_ENABLED = False` and `DIRECT_CAPTURE_ENABLED = False` remain mandatory. `TLTG_PA_CALIBRATE TEMP=<celsius> NOZZLE=<mm>` returns `PA_CALIBRATION_UNVALIDATED` before heating, homing, motion, extrusion, capture, or pressure-advance changes. Developer sensor commands are not registered even if `developer_capture: True` is set. The production code retains fail-closed preflight, exact trapq runtime hashes, nozzle resource-plan validation, stationary lead-in/transition/lead-out planning, pulse grouping, orchestration ordering, idempotent cleanup, and result/failure formatting. Production nozzle plans remain `hardware_validated=False`, and no physical backend is wired to the public command.
 
 Controlled `0.4 mm` nozzle testing with QIDI Box-fed PLA at `215 °C` established stationary direct-trapq extrusion, load-cell response under flow, PA/smooth-time restoration, ordinary E-move continuity, source preservation, chute clearing after at most two pulses, final cleanup, and successful stock `G28` after direct extrusion. Three of nine `500 Hz` under-load captures missed responses, isolated invalid excursions persisted, and repeated K responses were not repeatable enough to select a candidate. A single `250 Hz` under-load capture returned all `363/363` responses but is insufficient to establish a production rate.
 
@@ -188,7 +188,7 @@ The response dictionary includes `query_cs1237_data oid=%c data=%*s` as response
 
 The absence of `cs1237_data` from the matching MCU dictionary explains why passive `query_cs1237` experiments produced no messages consumable by the host bulk queue. A Klipper serial response absent from the MCU dictionary cannot be decoded by the matching host message parser.
 
-The firmware routine at `0x0800bd28`, identified from the command table as `command_query_cs1237_read`, validates the OID/type, loads CS1237 object state at offsets `0x74` and `0x78`, and emits the direct-read response through the response descriptor near `0x0800f4a4`. It appears to return cached sensor state rather than initiating a complete host-visible bulk stream.
+The firmware routine at `0x0800bd28`, identified from the command table as `command_query_cs1237_read`, loads the command word, uses only its low OID byte, validates the object type, loads CS1237 object state at offsets `0x74` and `0x78`, and emits the direct-read response through the response descriptor near `0x0800f4a4`. No instruction consumes the advertised `reg` or `read_len` fields. The command returns cached sensor state rather than initiating a conversion or complete host-visible bulk stream.
 
 A nearby routine at `0x0800bd74` packages a 32-bit value from SRAM `0x20000174` as four bytes through response metadata near `0x0800f494`. The exact association of this helper with zero/configuration operations remains unresolved; the four-byte little-endian packaging is consistent with live direct and zero-read payloads.
 
@@ -202,19 +202,19 @@ Calling `query_cs1237` without `cs1237_setup_home` did not expose a passive stre
 
 `query_cs1237_end_cmd` is the host's synchronous query wrapper around `query_cs1237_read`; it is not a continuous-stream stop command. The recurring stream stop command is `query_cs1237([oid, 0])` and belongs to the homing lifecycle.
 
-No toolhead firmware patch is required for the validated direct-read route. Adding a new MCU bulk response would require flashing constrained toolhead firmware and is unnecessary unless direct reads fail under stationary trapq load.
+No safe production route is established. Adding a conversion-identified MCU bulk response would require a toolhead firmware change; cached direct reads and homing-trigger acquisition do not satisfy the calibration contract.
 
-## Validated idle scheduled direct-response path
+## Rejected scheduled direct-response path
 
-The developer adapter uses the existing `probe_air.sensor_helper` and its MCU/OID. It does not create a second CS1237 MCU object, claim the sensor pins, replace QIDI's driver, alter probe zero, alter threshold state, or reconfigure the ADC.
+The characterization adapter uses the existing `probe_air.sensor_helper` and its MCU/OID. It does not create a second CS1237 MCU object, claim the sensor pins, replace QIDI's driver, alter probe zero, alter threshold state, or intentionally reconfigure the ADC. Public calibration and developer capture are hard-disabled because the required acquisition and verification commands are not state-safe.
 
-Capture preflight performs these checks before scheduling reads:
+The rejected capture preflight attempted these checks before scheduling reads:
 
 1. `print_stats.state` is exactly `standby`, `complete`, `error`, or `cancelled`; absent, malformed, active, and unknown states fail closed.
 2. `probe_air.sensor_helper` exposes `query_cs1237_home_state_cmd`, `query_cs1237_config_read_cmd`, `mcu`, and `oid`.
 3. The MCU exposes the required lookup, clock conversion, response registration, and serial-handler interfaces.
-4. Read-only `query_cs1237_home_state` reports `homing=0`; an active stock homing/probing owner fails with `SENSOR_BUSY`.
-5. Read-only `query_cs1237_config_r` reports exact configuration `60`.
+4. `query_cs1237_home_state` reports `homing=0`; an active stock homing/probing owner fails with `SENSOR_BUSY`.
+5. `query_cs1237_config_r` reports configuration `60`; later static and runtime evidence proved this query is not side-effect-free and invalidated the preflight design.
 6. No response handler already owns `('query_cs1237_data', oid)`.
 7. No in-process calibration token already owns the same sensor object.
 
@@ -238,13 +238,21 @@ reactor.pause(event_start + duration + 0.600)
 mcu.register_response(None, "query_cs1237_data", oid)
 ```
 
-`print_start` is scheduled `0.100 s` after `mcu.estimated_print_time(event_start)`. Registration and ownership release run through `finally` cleanup. The developer command bounds duration to five seconds and rate to 1000 Hz; the supported default is 500 Hz.
+`print_start` is scheduled `0.100 s` after `mcu.estimated_print_time(event_start)`. Registration and ownership release run through `finally` cleanup. These resource bounds remain test coverage for characterization code; no installed G-code command can invoke the path while `DIRECT_CAPTURE_ENABLED = False`.
 
 A plain `lookup_command()` is deliberate. `lookup_query_command().send()` serializes request/reply handling. The capture path instead registers one temporary OID-scoped callback and queues bounded requests asynchronously.
 
 The direct response has no request sequence field. Firmware structure suggests one response per processed `query_cs1237_read`, but a controlled 250 Hz pulse produced two callbacks with identical `#sent_time` and payload while total accepted cardinality still equaled requested cardinality. The host cannot prove that those callbacks represent distinct requests or conversions. The adapter therefore rejects duplicate `(sent_time, payload)` identities, underflow, overflow, and malformed responses; caps retained accepted and rejected responses at the planned request count; and no longer treats cardinality alone as proof of one-command/one-distinct-response behavior.
 
-Both `minclock` and `reqclock` are required. A 100 Hz experiment using only `reqclock` sent requests in bursts, returned `40/100` responses, and showed a `0.739 s` gap. In Klipper's serial queue, `reqclock` is a requested deadline; it is not a not-before time. Equal future `minclock` and `reqclock` produced the intended pacing.
+Both `minclock` and `reqclock` are required for reproducing the characterization traces. A 100 Hz experiment using only `reqclock` sent requests in bursts, returned `40/100` responses, and showed a `0.739 s` gap. In Klipper's serial queue, `reqclock` is a requested deadline; it is not a not-before time. Equal future `minclock` and `reqclock` produced the intended pacing but do not establish conversion freshness or state safety.
+
+## Rejected configuration-read fence
+
+`command_query_cs1237_config_r` starts at `0x0800d3fc`. It resolves the CS1237 pin descriptors, installs callback `0x0800b6b5`, and drives the SCLK GPIO mask high and low ten times at `0x0800d450` through `0x0800d464`. No recovered critical section, sensor-bus lock, periodic-acquisition pause, or ownership field serializes those transitions against the normal CS1237 timer path. The periodic path separately calls the serial acquisition routine at `0x08008eb4`.
+
+A controlled idle diagnostic invoked only `query_cs1237_config_r` three times at one-second intervals. No direct reads, heating, motion, extrusion, homing, or probe trigger occurred. Reported values were `60`, `60`, and `255`. The third result invoked Klipper shutdown, recovery used `FIRMWARE_RESTART`, and developer diagnostics were disabled afterward. This isolates configuration reading itself as an unsafe or unreliable compatibility fence; it does not prove whether `255` was a physical register change or a misframed read.
+
+`query_cs1237_begin oid=%c config=%u` is the separate stock configure/restart operation. Static command separation indicates that it does not arm `cs1237_setup_home` or carry threshold, filter, `trsync`, or `rest_ticks` fields. It is still not an accepted capture boundary: cached-data reset, first-fresh-conversion timing, zero-state preservation, and post-restart probe behavior are not validated.
 
 ## Idle host-response cadence measurements
 
@@ -258,7 +266,7 @@ Each retained run was one second with no heating, motion, extrusion, homing, pro
 | 800 Hz | 800 | 800 | `0.999480 s` | `0.957 ms` | `2.458 ms` | `3.957 ms` | `0.563 ms` |
 | 1000 Hz | 1000 | 994 | `0.998915 s` | `0.899 ms` | `2.426 ms` | `7.038 ms` | `0.579 ms` |
 
-The idle 500 Hz path returned full host-response coverage with lower command pressure and less repeated-value behavior than 800 Hz, so it was selected as the starting rate for trapq validation. Under-load testing later found incomplete 500 Hz runs, and a 250 Hz follow-up exposed duplicate response identity plus changed post-capture stock configuration. No direct-read rate is a validated production default. The 1000 Hz path failed idle full-response-coverage requirements.
+The idle 500 Hz path initially returned full host-response coverage with lower command pressure and less repeated-value behavior than 800 Hz. Under-load testing later found incomplete 500 Hz runs. A repeated idle campaign then completed three `50/50` runs at 50 Hz and three `250/250` runs at 250 Hz before two 250 Hz runs accepted only `245/250` and `249/250` distinct identities; the following preflight rejected a non-`60` configuration. No direct-read rate is a validated production default. The 1000 Hz path failed idle full-response-coverage requirements.
 
 The CS1237 remains configured for 1280 SPS while host capture requests 500 reads per second. The ADC configuration rate and host requested-read rate are separate values and are both recorded in diagnostic artifacts. A `500/500` response count does not prove 500 distinct conversions or bound the age of the cached conversion returned in each response.
 
@@ -282,13 +290,13 @@ Production analysis must classify invalid reads using a bounded invariant that r
 
 The fourth payload byte was zero for all retained responses and did not identify invalid excursions.
 
-## `read_origin_data` alternative
+## Live origin-cache alternative
 
-The Max 4 `cs1237.so` contains a `read_origin_data` method at ELF address `0xb070`. Its exact live cadence, reactor cost, zero-state interaction, and returned freshness have not been benchmarked on this Max 4.
+The Max 4 `cs1237.so` contains `read_origin_data()` at ELF address `0xb070`. Executing the ARM64 extension against command spies showed that the method calls only `query_cs1237_update_cmd.send([oid])` and returns the signed 24-bit value. The matching `command_query_cs1237_zero` handler at `0x0800bd74` loads cached SRAM `0x20000174`, packages four bytes, and emits `query_cs1237_zero_read`; it contains no GPIO write or object-state store.
 
-The Reddit implementation described below reports polling `sensor_helper.read_origin_data` at approximately 40 Hz on Q2/Q2C without creating another MCU object or touching sensor pins. That route may be useful as a low-rate compatibility fallback or validation cross-check, but 40 Hz provides only one sample every `25 ms` and may not resolve the PA transition timing required by this change.
+Three controlled 40 Hz and three 50 Hz idle runs used no direct reads, configuration reads, heating, motion, extrusion, homing, or probe trigger. Every run returned all requested values. The cache changed throughout each run: 40 Hz runs had 154–159 unique values per 200 samples, and 50 Hz runs had 173–187 unique values per 250 samples. Median synchronous call duration was approximately `11.4 ms`; maximum call duration ranged from `16.131` to `77.814 ms`, and maximum start-to-start gap reached `80.280 ms`.
 
-The developer adapter defaults to the idle-validated 500 Hz scheduled direct-read path and fails accounting when responses are missing. Production calibration must select a repeat-validated under-load rate no greater than 500 Hz and must not silently fall back to `read_origin_data` without separate timing and force-response evidence.
+This establishes a live, GPIO-passive idle source but not conversion freshness. The response has no conversion timestamp, host stalls exceed one 40 Hz period, and under-force behavior is untested. The source-gated origin command was removed from the live G-code surface after capture. Production use requires a conservative alignment model, repeat validation during trapq work, and post-capture stock probing evidence without using repeated configuration reads.
 
 ## Installed pressure-advance and trapq contract
 
@@ -339,7 +347,7 @@ Under-load direct responses showed measurable low/high/low force changes, but re
 
 A follow-up two-acceleration plan used K values `0.012`, `0.016`, `0.020`, `0.024`, and `0.028`, `10` and `20 mm/s²`, two repeats, and 250 Hz acquisition. It stopped after the first K `0.012` pulse. That pulse preserved XYZ, PA, smooth time, and filament source and returned `351/351`, but two callbacks shared identical `#sent_time` and payload values. The next stock configuration query returned `190` instead of required configuration `60`. The temporary harness let that expected compatibility failure escape as an internal G-code error, placing Klipper in shutdown. `FIRMWARE_RESTART`, final `CLEAR_OOZE`/`CLEAR_FLUSH`, full `G28`, absolute `Z=200`, trash parking, heater-off verification, and removal of the temporary harness all completed successfully. Direct-read acquisition remains unsafe for calibration until duplicate identity and post-capture configuration preservation are resolved.
 
-The production adapter now rejects duplicate response identities, validates exact stock configuration after every capture, and intentionally invokes Klipper shutdown with a firmware-restart requirement if stock sensor state changes. Public and developer G-code boundaries convert ordinary compatibility failures to command errors instead of accidental internal errors. These fail-closed guards do not make the acquisition path validated; `CALIBRATION_ENABLED` remains false.
+Duplicate-response and shutdown guards caught later failures but did not make repeated configuration reads safe. Configuration-only evidence invalidated the pre/post fence itself. Installed source now keeps both `CALIBRATION_ENABLED` and `DIRECT_CAPTURE_ENABLED` false, so neither public nor developer G-code can reach the adapter.
 
 The operator reported a conventional printed PA calibration of `0.020` for the tested `0.4 mm` PLA-at-`215 °C` setup and considers a relative difference of ten to twenty percent reasonable. The corresponding `0.016` through `0.024` interval is a provisional comparison window, not a validated acceptance criterion. No load-cell candidate exists for comparison yet, so task 5.3 remains incomplete.
 
@@ -372,7 +380,7 @@ The author's technical comment [t1_oznwy4x](https://old.reddit.com/r/QidiTech3D/
 - `strings` exposed CS1237 commands resembling Klipper HX71x commands;
 - direct 640/1280 Hz MCU querying was considered possible for a later version.
 
-The first five points align with the independent Max 4 host-binary and runtime-object analysis. The final native-rate claim is only partially supported: the firmware exposes direct and `rest_ticks` commands, but the matching dictionary lacks `cs1237_data`, and live 1000 Hz direct reads lost six responses. This change uses bounded scheduled direct reads and rejects incomplete captures rather than assuming native-rate bulk behavior.
+The first five points align with the independent Max 4 host-binary and runtime-object analysis. The final native-rate claim is not established on this firmware: the matching dictionary lacks `cs1237_data`, scheduled direct reads return cached state, and repeated captures lose distinct identities. Scheduled direct reads remain characterization evidence only.
 
 The comment thread also identifies validation areas already represented in `tasks.md`:
 
@@ -396,9 +404,9 @@ No Reddit source code was available at inspection time. No implementation was co
 
 ## Installer and runtime state
 
-The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `6cc0a0e71331c7818d6ab624757f60794a3815188f18cc5e1d58c61d295e27d4` for package `26.07.26.6`. Package `26.07.26.4` was used for the aborted two-acceleration follow-up; packages `26.07.26.5` and `26.07.26.6` add duplicate-identity, post-capture sensor-state, handler-ownership, intentional-shutdown, and G-code error-boundary guards.
+The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `942f4b5f2f12fd53e7be7694d2dd123e62e3d9aaae220550fbef2bf98de73c35` for package `26.07.26.10`. Package `26.07.26.4` was used for the aborted two-acceleration follow-up; packages through `26.07.26.8` added response, ownership, shutdown, and hard-disable guards. Packages `26.07.26.9` and `26.07.26.10` retain source-gated origin-cache characterization and make the GPIO-passive origin adapter the staged preflight path while keeping every developer sensor command disabled.
 
-Packages `26.07.26.3` through `26.07.26.6` were installed on the controlled Max 4 from validated development bundles and loaded through verified Klipper service-process restarts. Final `26.07.26.6` state reported the expected module hash, Klipper `ready`, heater target zero, no temporary hardware-spike module/config, the QIDI Box source still loaded, and public calibration disabled.
+Packages `26.07.26.3` through `26.07.26.10` were installed on the controlled Max 4 from validated development bundles and loaded through verified Klipper service-process restarts. Final `26.07.26.10` state reported the expected module hash, Klipper `ready`, heater target zero, loaded QIDI Box `slot4`, public calibration disabled, and direct, configuration, and origin developer commands absent.
 
 The managed destination supports collision detection, drift rejection, atomic replacement, rollback, state-ledger recording, upgrade, uninstall, and optional preimage restoration. Recovery-sentinel validation checks expected existence, SHA-256, and mode for rollback-tracked files outside `config/`.
 
@@ -408,8 +416,8 @@ A Moonraker `/printer/restart` reloads configuration but does not reload an alre
 
 The direct-read implementation passed:
 
-- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 59 tests;
-- `python3 scripts/run_installer_core_tests.py` — 249 tests;
+- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 65 tests;
+- `python3 scripts/run_installer_core_tests.py` — 255 tests;
 - `python3 scripts/format_klipper_configs.py` — no formatting changes;
 - `python3 scripts/check_installer_known_versions.py` — compatibility metadata valid;
 - `openspec validate add-load-cell-pa-calibration --strict` — valid;
@@ -434,10 +442,10 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Missing or unsupported nozzle diameter is rejected | Unit tests cover missing and unsupported diameters without fallback lookup. | None. |
 | Valid preflight performs full homing and lowers the bed | State-machine order is `home_all`, absolute `Z=200`, then trash parking before heating; the controlled `0.4 mm` run completed that physical sequence. | Production backend and abort behavior remain unvalidated. |
 | Concurrent calibration or probe ownership is rejected | In-process ownership, response-handler ownership, and read-only stock `homing` state are checked. | Probe/calibration race testing remains. |
-| Supported stock sensor contract is accepted | Structural, OID, command, handler, configuration `60`, scheduling, and payload checks have unit and idle-printer evidence. | Conversion freshness under trapq work remains. |
+| Supported stock sensor contract is accepted | Cached direct-read and repeated config-read paths are rejected; both G-code entrypoints are hard-disabled. | A non-disruptive acquisition and stock-state transaction is required. |
 | Changed private interface is rejected | Missing attributes, malformed configuration, handler collision, and runtime mismatches fail closed. | Repeat against every supported firmware artifact. |
 | Homing trigger acquisition is rejected for calibration | Calibration code contains no `setup_home`, `cs1237_setup_home`, `TriggerDispatch`, or `trsync` acquisition path. | None. |
-| Stock probing remains available after calibration | Full `G28` succeeded after direct-trapq pulses and final cleanup without modifying probe zero, threshold, or homing objects. | Post-capture Z tilt and mesh validation remain. |
+| Stock probing remains available after calibration | Full `G28` succeeded after earlier direct-trapq pulses and final cleanup. Later config-only diagnostics required firmware restart and no post-diagnostic probing was attempted before restart. | A safe acquisition transaction plus post-capture Z tilt and mesh validation remain. |
 | Measured pulses have no XY motion | Controlled direct pulses extruded `1.275` or `2.0375 mm` while start/end XYZ remained `(135, 403, 200)`. | Repeat with production backend and every nozzle plan. |
 | Injected moves exercise the real PA transform | Live moves used `axes_r_y=1` and K values `0`, `0.032`, and `0.08`; the installed PA owner was exercised and restored. | Force responses were not repeatable enough to validate candidate interpretation. |
 | Private trapq contract is incompatible | Live preflight exposed the `extruder_stepper` PA owner; the adapter now validates that owner and active stepper trapq in addition to six runtime hashes. | Repeat against every supported firmware artifact. |
@@ -451,7 +459,7 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | External-spool filament is loaded | Box-disabled and synchronized `slot16` paths classify as `external`. | Controlled external-spool extrusion remains. |
 | Capture covers the measured motion window | Controlled captures bracketed scheduled direct-trapq transitions and retained send/receive timing. | Cached-conversion age and print-time conversion bounds remain unknown. |
 | Conversion freshness is inconclusive | Under-load captures are retained without promoting response receive time to conversion time, and public reporting remains disabled. | Hardware invariant for cached conversion age remains unknown. |
-| Raw processing respects host limits | Six of nine `500 Hz` under-load runs were complete; one `250 Hz` run returned `363/363`. | Select and repeat-validate a rate with acceptable timing and reactor load. |
+| Raw processing respects host limits | Repeated idle 250 Hz runs degraded from `250/250` to `245/250` and `249/250`; the path is disabled. | Replace or repair acquisition before rate selection. |
 | Invalid direct-read excursions are detected | Near-zero and isolated large excursions were retained during force transitions. | A force-safe raw-count classifier remains unknown. |
 | Timing uncertainty exceeds tolerance | Coverage, gap, and timing-residual gates return stable inconclusive reasons. | Thresholds require conversion-time evidence. |
 | Valid response produces an interior candidate | Deterministic fixtures require corroboration and reject edge candidates. | Hardware-selected candidates remain disabled. |
@@ -468,7 +476,7 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Analysis failure restores state | Injected analysis failure restores before emitting failure. | Concrete backend remains. |
 | Klipper shutdown interrupts calibration | Motion-unsafe cleanup omits clear motion and records manual cleanup. | Shutdown event wiring remains. |
 | Fresh installation deploys the capability | Installer external-file and managed-tree integration tests pass. | No current deployment is requested. |
-| Python extra upgrade reloads module code | Packages through `26.07.26.6` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
+| Python extra upgrade reloads module code | Packages through `26.07.26.10` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
 | Destination collision fails safely | Installer collision and drift tests pass before writes. | None. |
 | Failed installation rolls back the extra | Integration tests cover external-file rollback and recovery state. | None. |
 | Uninstall removes only the managed extra | Exact-hash removal and preimage restoration tests pass. | None. |
@@ -483,9 +491,9 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 
 The following findings remain unresolved after the controlled `0.4 mm` PLA run:
 
-1. A bound on cached-conversion age and conversion-time error relative to scheduled requests and Klipper print time.
-2. A raw/timing invariant that rejects invalid reads during real force transitions without suppressing valid signal edges.
-3. A repeat-validated under-load request rate; `500 Hz` missed responses in three of nine runs and `250 Hz` has one complete run.
+1. A non-homing acquisition and stock-state transaction that does not rely on cached direct-response identity or repeated `query_cs1237_config_r` calls.
+2. A bound on conversion age and conversion-time error relative to scheduled requests and Klipper print time.
+3. A raw/timing invariant that rejects invalid reads during real force transitions without suppressing valid signal edges.
 4. Production direct-trapq ownership, queue drain, and real cancellation/shutdown behavior; bounded generation and ordinary E continuity passed.
 5. Normal E-only and `CLEAR_FLUSH` force traces; idle, heated-idle, and stationary PA-eligible low/high/low traces are retained.
 6. Force polarity, baseline drift, sensor settling, flap contamination, signal-to-noise limits, and repeatable K-response classification.

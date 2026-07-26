@@ -20,8 +20,8 @@
 
 ## 3. Klipper Sensor and Calibration Integration
 
-- [x] 3.1 Complete the narrow QIDI `probe_air`/CS1237 compatibility adapter that validates exact configuration `60`, direct-read command/response attributes, clock scheduling, and handler ownership before side effects.
-- [x] 3.2 Complete idempotent direct-read capture cleanup that unregisters the OID-scoped response handler, releases exclusive ownership, accounts for every queued request, rejects concurrent probe/calibration ownership, and leaves stock probe calibration and thresholds untouched.
+- [ ] 3.1 Complete the narrow QIDI `probe_air`/CS1237 compatibility adapter with a hardware-validated non-homing acquisition and stock-state transaction; cached direct reads and repeated `query_cs1237_config_r` checks are rejected.
+- [ ] 3.2 Complete idempotent capture cleanup that unregisters owned handlers, releases exclusive ownership, accounts for every queued request, rejects concurrent probe/calibration ownership, and proves stock probe calibration and thresholds remain untouched.
 - [x] 3.3 Complete side-effect-free calibration preflight for idle print state, required `TEMP` and supported `NOZZLE`, registered chute commands, compatible sensor and trapq interfaces, corroborated toolhead/QIDI loaded-filament status, QIDI Box/external-spool preservation, and nozzle-specific resource bounds.
 - [ ] 3.4 Implement setup ordering that performs full stock `G28`, moves to absolute `Z=200`, parks with `OPTIMIZED_MOVE_TO_TRASH`, sets and stabilizes the requested temperature, and starts capture only after positioning settles.
 - [ ] 3.5 Implement version-pinned direct extruder trapq scheduling for stationary PA-enabled E-only low/high/low pulses with explicit heater, distance, velocity, acceleration, positive-extrusion, nominal-position, timing, smoothing, and queue-overlap checks.

@@ -21,8 +21,15 @@
 - **Runtime-confirmed:** one 250 Hz stationary direct-trapq capture returned `363/363` responses; one run does not establish a production capture rate.
 - **Runtime-confirmed:** a later 250 Hz pulse returned `351/351`, but two accepted callbacks shared identical `#sent_time` and payload values. Ordered response cardinality alone therefore does not prove one distinct conversion per request.
 - **Runtime-confirmed:** immediately after that pulse, the stock CS1237 configuration read `190` instead of required configuration `60`; the two-acceleration sweep stopped after one pulse, Klipper was firmware-restarted, final chute cleanup and full `G28` succeeded, and the loaded QIDI Box source remained unchanged.
+- **Runtime-confirmed:** an idle repeat campaign completed three `50/50` captures at 50 Hz and three `250/250` captures at 250 Hz. The next two 250 Hz captures accepted `245/250` and `249/250` distinct response identities, and the following preflight rejected a non-`60` configuration before capture.
+- **Runtime-confirmed:** with no direct reads, motion, heating, or extrusion, three `query_cs1237_config_r` calls spaced one second apart returned `60`, `60`, and `255`; the diagnostic guard shut Klipper down and recovery required `FIRMWARE_RESTART`.
+- **Static-recovered:** `command_query_cs1237_read` at `0x0800bd28` consumes only the OID and returns cached object fields at offsets `0x74` and `0x78`; the advertised `reg` and `read_len` parameters are unused by toolhead MCU firmware `02.02.01.08`.
+- **Static-recovered:** `command_query_cs1237_config_r` at `0x0800d3fc` drives ten SCLK transitions without a recovered lock against periodic CS1237 acquisition, so it is not a side-effect-free compatibility query.
 - **Runtime-confirmed:** near-zero and large isolated excursions remained present during heated and stationary-extrusion captures.
-- **Unresolved:** direct-read conversion freshness, duplicate-response identity, post-capture configuration preservation, force-safe invalid-excursion classification, saturation behavior, and a production under-load request rate remain unproven.
+- **Static-recovered:** compiled `CS1237.read_origin_data()` calls only `query_cs1237_zero`; the matching MCU handler loads cached SRAM `0x20000174` and emits four bytes without GPIO writes or object-state stores.
+- **Runtime-confirmed:** three 40 Hz and three 50 Hz idle `read_origin_data()` runs returned every requested value and changed throughout each run, proving the cache is live while idle. Median synchronous call time was approximately `11.4 ms`; maximum host stalls ranged from `16.131` to `77.814 ms`.
+- **Repository-confirmed:** public calibration, developer direct capture, configuration diagnostics, and origin-cache capture remain hard-disabled in installed package `26.07.26.10`; staged preflight uses the GPIO-passive origin adapter and does not read configuration.
+- **Unresolved:** origin-cache conversion age, force-transition timing at 40 Hz, force-safe invalid-excursion classification, saturation behavior, and state preservation under extrusion remain unproven.
 
 Sanitized idle cadence evidence is stored in `openspec/changes/add-load-cell-pa-calibration/evidence/direct-read-cadence.json`. Host, MCU, and compiled-artifact hashes are recorded in `openspec/changes/add-load-cell-pa-calibration/reverse-engineering.md`.
 

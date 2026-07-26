@@ -19,6 +19,64 @@
     "configuration": 60,
     "firmware": "QD_MAX4_THR 02.02.01.08"
   },
+  "repeated_idle_validation": {
+    "conditions": {
+      "extrusion": false,
+      "heating": false,
+      "motion": false
+    },
+    "captures": [
+      {
+        "rate_hz": 50,
+        "runs": [
+          {"accepted": 50, "issues": [], "requested": 50},
+          {"accepted": 50, "issues": [], "requested": 50},
+          {"accepted": 50, "issues": [], "requested": 50}
+        ]
+      },
+      {
+        "rate_hz": 250,
+        "runs": [
+          {"accepted": 250, "issues": [], "requested": 250},
+          {"accepted": 250, "issues": [], "requested": 250},
+          {"accepted": 250, "issues": [], "requested": 250},
+          {"accepted": 245, "issues": ["DUPLICATE_RESPONSE_IDENTITY", "RESPONSE_COUNT_MISMATCH"], "requested": 250},
+          {"accepted": 249, "issues": ["DUPLICATE_RESPONSE_IDENTITY", "RESPONSE_COUNT_MISMATCH"], "requested": 250}
+        ]
+      }
+    ],
+    "following_preflight": {
+      "result": "UNSUPPORTED_SENSOR_CONFIG",
+      "value_recorded": false
+    },
+    "config_read_only_sequence": {
+      "command": "query_cs1237_config_r oid=5",
+      "interval_s": 1.0,
+      "reported_values": [60, 60, 255],
+      "result": "STOCK_SENSOR_RESTART_REQUIRED",
+      "recovery": "FIRMWARE_RESTART"
+    },
+    "qualification": "The direct-read and config-read paths are not validated acquisition or compatibility transactions. Public calibration and developer capture remain disabled."
+  },
+  "origin_cache_validation": {
+    "conditions": {
+      "extrusion": false,
+      "heating": false,
+      "motion": false
+    },
+    "host_method": "probe_air.sensor_helper.read_origin_data()",
+    "mcu_command": "query_cs1237_zero oid=5",
+    "runs": [
+      {"call_duration_max_ms": 54.618, "call_duration_median_ms": 11.362, "gap_max_ms": 55.262, "gap_median_ms": 25.087, "mad_counts": 80.5, "median_counts": -288479.5, "rate_hz": 40, "received": 200, "requested": 200, "unique_values": 159},
+      {"call_duration_max_ms": 21.284, "call_duration_median_ms": 11.470, "gap_max_ms": 53.767, "gap_median_ms": 25.041, "mad_counts": 66.5, "median_counts": -288480.0, "rate_hz": 40, "received": 200, "requested": 200, "unique_values": 154},
+      {"call_duration_max_ms": 52.664, "call_duration_median_ms": 11.354, "gap_max_ms": 62.091, "gap_median_ms": 25.026, "mad_counts": 72.0, "median_counts": -288470.5, "rate_hz": 40, "received": 200, "requested": 200, "unique_values": 155},
+      {"call_duration_max_ms": 16.131, "call_duration_median_ms": 11.296, "gap_max_ms": 55.910, "gap_median_ms": 20.030, "mad_counts": 59.0, "median_counts": -288476.0, "rate_hz": 50, "received": 250, "requested": 250, "unique_values": 173},
+      {"call_duration_max_ms": 45.236, "call_duration_median_ms": 11.372, "gap_max_ms": 45.898, "gap_median_ms": 20.066, "mad_counts": 69.0, "median_counts": -288467.0, "rate_hz": 50, "received": 250, "requested": 250, "unique_values": 185},
+      {"call_duration_max_ms": 77.814, "call_duration_median_ms": 11.471, "gap_max_ms": 80.280, "gap_median_ms": 19.959, "mad_counts": 62.0, "median_counts": -288484.0, "rate_hz": 50, "received": 250, "requested": 250, "unique_values": 187}
+    ],
+    "static_boundary": "The host method calls only query_cs1237_update_cmd. The matching MCU handler loads cached SRAM 0x20000174 and emits four bytes without GPIO writes or object-state stores.",
+    "qualification": "Values changed throughout every run, proving the cache is live while idle. Median synchronous call time was about 11.4 ms, but host stalls reached 80.280 ms and conversion age remains unbounded. The source-gated command was removed from the live G-code surface after capture."
+  },
   "traces": {
     "100": {
       "consecutive_duplicate_count": 2,

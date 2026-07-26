@@ -65,12 +65,27 @@ The system SHALL validate printer, motion, temperature, sensor, and calibration 
 The system SHALL access the stock `probe_air` CS1237 acquisition path through a compatibility adapter that validates every private runtime dependency before calibration side effects.
 
 #### Scenario: Supported stock sensor contract is accepted
-- **WHEN** `probe_air` exposes the expected CS1237 helper, `query_cs1237_config_r`, `query_cs1237_read`, OID-scoped `query_cs1237_data`, MCU clock scheduling, four-byte payload shape, and exact ADC configuration `60`
-- **THEN** the adapter permits bounded sensor capture only through scheduled direct reads with equal future `minclock` and `reqclock`
-- **AND** the stock probe calibration, zero, trigger threshold, and endstop behavior remain unchanged
+- **WHEN** `probe_air` exposes a hardware-validated non-homing acquisition transaction with bounded conversion freshness, distinct response identity, exclusive pin ownership, and a non-disruptive stock-state verification or restoration contract
+- **THEN** the adapter permits bounded sensor capture only through that validated transaction
+- **AND** the stock probe configuration, calibration, zero, trigger threshold, and endstop behavior remain unchanged
+
+#### Scenario: Cached direct reads are insufficient
+- **WHEN** `query_cs1237_read` returns cached object state without request identity or conversion timestamps
+- **THEN** the adapter does not treat response cadence or cardinality as proof of conversion freshness
+- **AND** public and developer capture remain disabled
+
+#### Scenario: GPIO-passive origin cache remains unvalidated
+- **WHEN** `read_origin_data()` returns changing cached values without driving sensor pins
+- **THEN** the adapter may retain that path for source-gated characterization
+- **AND** public capture remains disabled until conversion age, under-force timing, and stock probe preservation are hardware-validated
+
+#### Scenario: Configuration reads are not side-effect-free
+- **WHEN** `query_cs1237_config_r` drives the live CS1237 clock without a validated serialization contract
+- **THEN** the adapter does not use repeated configuration reads as a pre/post capture fence
+- **AND** any observed non-stock result requires `FIRMWARE_RESTART`
 
 #### Scenario: Changed private interface is rejected
-- **WHEN** a required `probe_air` or CS1237 private attribute, command, configuration, or payload field is absent or incompatible
+- **WHEN** a required `probe_air` or CS1237 private attribute, command, configuration, payload field, or state-preservation invariant is absent or incompatible
 - **THEN** the system reports an unsupported sensor interface
 - **AND** no motion, extrusion, heating-target change, or pressure advance change occurs
 
@@ -80,13 +95,13 @@ The system SHALL access the stock `probe_air` CS1237 acquisition path through a 
 - **AND** it does not arm probe thresholds, endstop reasons, stepper-stop behavior, or homing watchdogs
 
 #### Scenario: Stock probing remains available after calibration
-- **WHEN** calibration completes, fails, or is cancelled and post-capture sensor configuration remains exactly `60`
+- **WHEN** calibration completes, fails, or is cancelled and the validated stock-state transaction proves the sensor state was preserved or restored
 - **THEN** subsequent QIDI Z homing, probing, Z tilt, and bed mesh operations use their stock behavior
 
-#### Scenario: Direct reads change stock sensor configuration
-- **WHEN** the post-capture CS1237 configuration or homing state differs from the validated idle preimage
+#### Scenario: Sensor state cannot be proven safe
+- **WHEN** acquisition or verification reports a changed, ambiguous, or unverified CS1237 configuration or homing state
 - **THEN** calibration reports no candidate and requires `FIRMWARE_RESTART`
-- **AND** Klipper enters shutdown before any subsequent probing or calibration motion can use the changed sensor state
+- **AND** Klipper enters shutdown before any subsequent probing or calibration motion can use the unverified sensor state
 
 ### Requirement: Calibration uses stationary PA-enabled extrusion
 The system SHALL test pressure advance with bounded positive E-only trapezoids injected into the active extruder trapq with PA eligibility enabled while the toolhead remains stationary over the rear trash chute.
@@ -150,7 +165,7 @@ The system SHALL support filament already loaded from either the QIDI Box or the
 - **THEN** calibration uses the active toolhead extruder without invoking QIDI Box operations
 
 ### Requirement: Sensor capture is synchronized and bounded
-The system SHALL collect bounded CS1237 direct-read responses through a validated non-homing acquisition path, establish a hardware-validated bound on conversion freshness and conversion-time error, and align accepted samples to queued low/high/low extrusion transitions in Klipper print-time coordinates.
+The system SHALL collect bounded CS1237 samples through a validated non-homing acquisition and state-preservation transaction, establish a hardware-validated bound on conversion freshness and conversion-time error, and align accepted samples to queued low/high/low extrusion transitions in Klipper print-time coordinates.
 
 #### Scenario: Capture covers the measured motion window
 - **WHEN** a calibration sweep runs
@@ -163,7 +178,7 @@ The system SHALL collect bounded CS1237 direct-read responses through a validate
 - **AND** the system reports no PA candidate
 
 #### Scenario: Raw processing respects host limits
-- **WHEN** the validated acquisition path schedules direct reads against the 1280 SPS ADC
+- **WHEN** the validated acquisition path samples the nominally 1280 SPS ADC
 - **THEN** the system uses a repeat-validated under-load request rate no greater than 500 Hz and bounds query duration, queued command count, memory, and reactor occupancy without per-sample console output
 - **AND** normal calibration does not persist raw sample files
 

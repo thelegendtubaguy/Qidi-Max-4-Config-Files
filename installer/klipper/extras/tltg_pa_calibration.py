@@ -20,11 +20,15 @@ DEFAULT_CAPTURE_RATE = 500
 MAX_CAPTURE_DURATION = 5.0
 MAX_CAPTURE_RATE = 1000
 MAX_CAPTURE_REQUESTS = 5000
+MAX_SENSOR_CHECK_REPEATS = 20
+MAX_SENSOR_CHECK_INTERVAL = 5.0
 CS1237_CONFIG_1280_SPS = 60
 SUPPORTED_NOZZLES = (0.2, 0.4, 0.6, 0.8)
 ADC_MIN = -0x800000
 ADC_MAX = 0x7FFFFF
 CALIBRATION_ENABLED = False
+DIRECT_CAPTURE_ENABLED = False
+ORIGIN_CAPTURE_ENABLED = False
 SAFE_PRINT_STATES = frozenset(("standby", "complete", "error", "cancelled"))
 SAFE_IDLE_TIMEOUT_STATES = frozenset(("Idle", "Ready"))
 REQUIRED_CALIBRATION_COMMANDS = frozenset(
@@ -39,6 +43,7 @@ EXPECTED_TRAPQ_RUNTIME_HASHES = {
     "c_helper.so": "214d1ab79a78b2aa28ba8cd7ba0d7383afcaaf9d36561112aa7bf73cf6591714",
 }
 _ACTIVE_SENSOR_IDS = set()
+_DIRECT_READ_SENSOR_IDS = set()
 
 
 class CalibrationError(Exception):
@@ -1098,7 +1103,7 @@ def validate_calibration_preflight(
     plan = plan_map.get(nozzle) if isinstance(plan_map, dict) else None
     _validate_nozzle_resource_plan(plan, nozzle)
 
-    sensor_factory = sensor_adapter_factory or QidiCS1237Adapter
+    sensor_factory = sensor_adapter_factory or QidiOriginAdapter
     trapq_factory = trapq_adapter_factory or QidiDirectTrapqAdapter
     sensor_adapter = sensor_factory(printer)
     trapq_adapter = trapq_factory(printer)
@@ -1457,6 +1462,66 @@ def _sha256_file(path):
     return digest.hexdigest()
 
 
+def _invoke_stock_sensor_shutdown(printer):
+    invoke_shutdown = getattr(printer, "invoke_shutdown", None)
+    if callable(invoke_shutdown):
+        invoke_shutdown(
+            "PA direct-read capture did not preserve verified stock sensor "
+            "state; FIRMWARE_RESTART required"
+        )
+
+
+class QidiOriginAdapter:
+    """Non-homing adapter around the GPIO-passive cached origin response."""
+
+    def __init__(self, printer):
+        probe_air = printer.lookup_object("probe_air", None)
+        sensor = getattr(probe_air, "sensor_helper", None)
+        read_origin = getattr(sensor, "read_origin_data", None)
+        home_state_cmd = getattr(sensor, "query_cs1237_home_state_cmd", None)
+        home_state_send = getattr(home_state_cmd, "send", None)
+        if (
+            sensor is None
+            or not isinstance(getattr(sensor, "oid", None), int)
+            or sensor.oid < 0
+            or not callable(read_origin)
+            or not callable(home_state_send)
+        ):
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        self.printer = printer
+        self.sensor = sensor
+        self.read_origin = read_origin
+        self.home_state_send = home_state_send
+
+    def validate_configuration(self):
+        if id(self.sensor) in _ACTIVE_SENSOR_IDS:
+            raise CalibrationError("SENSOR_BUSY")
+        try:
+            home_state = self.home_state_send([self.sensor.oid])
+        except Exception as exc:
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE") from exc
+        homing = home_state.get("homing") if isinstance(home_state, dict) else None
+        if type(homing) not in (bool, int) or int(homing) not in (0, 1):
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        if bool(homing):
+            raise CalibrationError("SENSOR_BUSY")
+        return {"oid": self.sensor.oid, "homing": 0}
+
+    def read(self):
+        try:
+            value = self.read_origin()
+        except Exception as exc:
+            raise CalibrationError("ORIGIN_CAPTURE_FAILED") from exc
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or value < ADC_MIN
+            or value > ADC_MAX
+        ):
+            raise CalibrationError("INVALID_ORIGIN_RESPONSE")
+        return value
+
+
 class QidiCS1237Adapter:
     """Narrow adapter around the private QIDI probe_air sensor helper."""
 
@@ -1503,7 +1568,7 @@ class QidiCS1237Adapter:
         self.read_command = read_command
         self.active = False
 
-    def validate_configuration(self):
+    def read_stock_state(self):
         sensor_id = id(self.sensor)
         response_key = (self.RESPONSE_NAME, self.sensor.oid)
         handlers = self.sensor.mcu._serial.handlers
@@ -1518,18 +1583,36 @@ class QidiCS1237Adapter:
         if bool(homing):
             raise CalibrationError("SENSOR_BUSY")
         config = self.sensor.query_cs1237_config_read_cmd.send([self.sensor.oid])
+        config_oid = config.get("oid") if isinstance(config, dict) else None
+        config_value = config.get("config") if isinstance(config, dict) else None
         if (
-            not isinstance(config, dict)
-            or config.get("oid") != self.sensor.oid
-            or config.get("config") != CS1237_CONFIG_1280_SPS
+            config_oid != self.sensor.oid
+            or not isinstance(config_value, int)
+            or isinstance(config_value, bool)
+            or not 0 <= config_value <= 0xFF
         ):
             raise CalibrationError("UNSUPPORTED_SENSOR_CONFIG")
-        return config
+        return {
+            "oid": self.sensor.oid,
+            "homing": int(homing),
+            "config": config_value,
+        }
+
+    def validate_configuration(self, shutdown_on_mismatch=False):
+        state = self.read_stock_state()
+        if state["config"] != CS1237_CONFIG_1280_SPS:
+            if shutdown_on_mismatch:
+                _invoke_stock_sensor_shutdown(self.printer)
+                raise CalibrationError("STOCK_SENSOR_RESTART_REQUIRED")
+            raise CalibrationError("UNSUPPORTED_SENSOR_CONFIG")
+        return state
 
     def capture(self, reactor, duration, rate):
         request_count = _bounded_capture_request_count(duration, rate)
-        self.validate_configuration()
         sensor_id = id(self.sensor)
+        self.validate_configuration(
+            shutdown_on_mismatch=sensor_id in _DIRECT_READ_SENSOR_IDS
+        )
         response_key = (self.RESPONSE_NAME, self.sensor.oid)
         handlers = self.sensor.mcu._serial.handlers
 
@@ -1568,6 +1651,7 @@ class QidiCS1237Adapter:
             raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
 
         _ACTIVE_SENSOR_IDS.add(sensor_id)
+        _DIRECT_READ_SENSOR_IDS.add(sensor_id)
         self.active = True
         registered = False
         operation_error = None
@@ -1628,12 +1712,7 @@ class QidiCS1237Adapter:
                 post_state_error = CalibrationError("SENSOR_OWNERSHIP_UNSAFE")
                 operation_errors.append(type(post_state_error).__name__)
         if post_state_error is not None or not handler_released:
-            invoke_shutdown = getattr(self.printer, "invoke_shutdown", None)
-            if callable(invoke_shutdown):
-                invoke_shutdown(
-                    "PA direct-read capture did not restore verified stock "
-                    "sensor state; FIRMWARE_RESTART required"
-                )
+            _invoke_stock_sensor_shutdown(self.printer)
 
         if len(messages) != request_count:
             issues.append("RESPONSE_COUNT_MISMATCH")
@@ -1666,8 +1745,15 @@ class TLTGPressureAdvance:
         self.developer_capture = config.getboolean("developer_capture", False)
         self.gcode = self.printer.lookup_object("gcode")
         self.gcode.register_command("_TLTG_PA_CALIBRATE", self.cmd_calibrate)
-        if self.developer_capture:
+        if self.developer_capture and DIRECT_CAPTURE_ENABLED:
             self.gcode.register_command("_TLTG_PA_CAPTURE", self.cmd_capture)
+            self.gcode.register_command(
+                "_TLTG_PA_SENSOR_CHECK", self.cmd_sensor_check
+            )
+        if self.developer_capture and ORIGIN_CAPTURE_ENABLED:
+            self.gcode.register_command(
+                "_TLTG_PA_ORIGIN_CAPTURE", self.cmd_origin_capture
+            )
 
     def get_status(self, eventtime):
         return {"calibration_enabled": CALIBRATION_ENABLED}
@@ -1692,6 +1778,103 @@ class TLTGPressureAdvance:
         except CalibrationError as exc:
             raise gcmd.error(_calibration_reason(exc)) from exc
         raise gcmd.error("PA_CALIBRATION_NOT_IMPLEMENTED")
+
+    def cmd_origin_capture(self, gcmd):
+        duration = gcmd.get_float("SECONDS", 1.0, above=0.0, maxval=5.0)
+        rate = gcmd.get_int("RATE", 40, minval=1, maxval=50)
+        request_count = _bounded_capture_request_count(duration, rate)
+        if request_count > 250:
+            raise gcmd.error("CAPTURE_RESOURCE_LIMIT")
+        reactor = self.printer.get_reactor()
+        try:
+            _require_idle_print_state(self.printer, reactor.monotonic())
+        except CalibrationError as exc:
+            raise gcmd.error("PA_CAPTURE_REQUIRES_IDLE_PRINTER") from exc
+        try:
+            adapter = QidiOriginAdapter(self.printer)
+            adapter.validate_configuration()
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
+        start = reactor.monotonic()
+        samples = []
+        for index in range(request_count):
+            before = reactor.monotonic()
+            try:
+                value = adapter.read()
+            except CalibrationError as exc:
+                raise gcmd.error(_calibration_reason(exc)) from exc
+            after = reactor.monotonic()
+            samples.append(
+                {
+                    "offset": before - start,
+                    "duration": after - before,
+                    "value": value,
+                }
+            )
+            if index + 1 < request_count:
+                reactor.pause(start + float(index + 1) / rate)
+        path = "/tmp/tltg_pa_origin_capture_%d.json" % int(time.time())
+        document = {
+            "requested_rate": rate,
+            "requested_responses": request_count,
+            "received_responses": len(samples),
+            "duration": duration,
+            "samples": samples,
+        }
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, separators=(",", ":"))
+        gcmd.respond_info("PA_ORIGIN_CAPTURE=%s" % path)
+
+    def cmd_sensor_check(self, gcmd):
+        repeats = gcmd.get_int(
+            "REPEATS", 1, minval=1, maxval=MAX_SENSOR_CHECK_REPEATS
+        )
+        interval = gcmd.get_float(
+            "INTERVAL", 1.0, minval=0.1, maxval=MAX_SENSOR_CHECK_INTERVAL
+        )
+        reactor = self.printer.get_reactor()
+        try:
+            _require_idle_print_state(self.printer, reactor.monotonic())
+            adapter = QidiCS1237Adapter(self.printer)
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
+        start = reactor.monotonic()
+        samples = []
+        unsafe_config = False
+        try:
+            for index in range(repeats):
+                eventtime = reactor.monotonic()
+                state = adapter.read_stock_state()
+                samples.append(
+                    {
+                        "offset": eventtime - start,
+                        "homing": state["homing"],
+                        "config": state["config"],
+                    }
+                )
+                if state["homing"]:
+                    raise CalibrationError("SENSOR_BUSY")
+                if state["config"] != CS1237_CONFIG_1280_SPS:
+                    unsafe_config = True
+                    break
+                if index + 1 < repeats:
+                    reactor.pause(eventtime + interval)
+        except CalibrationError as exc:
+            raise gcmd.error(_calibration_reason(exc)) from exc
+        path = "/tmp/tltg_pa_sensor_check_%d.json" % int(time.time())
+        document = {
+            "expected_config": CS1237_CONFIG_1280_SPS,
+            "requested_repeats": repeats,
+            "completed_repeats": len(samples),
+            "interval": interval,
+            "samples": samples,
+        }
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(document, handle, separators=(",", ":"))
+        gcmd.respond_info("PA_SENSOR_CHECK=%s" % path)
+        if unsafe_config:
+            _invoke_stock_sensor_shutdown(self.printer)
+            raise gcmd.error("STOCK_SENSOR_RESTART_REQUIRED")
 
     def cmd_capture(self, gcmd):
         duration = gcmd.get_float("SECONDS", 1.0, above=0.0, maxval=5.0)

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 from installer.tests.helpers import REPO_ROOT
 
@@ -471,9 +472,9 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
             plans={0.4: _validated_nozzle_plan()},
             trapq_adapter_factory=_PreflightTrapqAdapter,
         )
-        self.assertIsInstance(result.sensor_adapter, pa.QidiCS1237Adapter)
+        self.assertIsInstance(result.sensor_adapter, pa.QidiOriginAdapter)
         self.assertEqual(sensor.query_cs1237_home_state_cmd.sends, [[sensor.oid]])
-        self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [[sensor.oid]])
+        self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [])
         self.assertEqual(sensor.mcu.read_command.sends, [])
 
     def test_preflight_rejects_unvalidated_production_nozzle_plans(self):
@@ -823,6 +824,94 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "UNSUPPORTED_TOOLHEAD_INTERFACE"):
             runtime.cmd_capture(_FakeGcmd({"SECONDS": 0.01, "RATE": 100}))
 
+    def test_developer_origin_capture_reads_cached_path_only(self):
+        sensor = _FakeSensor(origin_values=[11, 12, 13, 14])
+        printer = _CaptureRuntimePrinter(
+            {
+                "gcode": _FakeGcode(),
+                "print_stats": _StatusObject({"state": "standby"}),
+                "idle_timeout": _StatusObject({"state": "Idle"}),
+                "probe_air": type("Probe", (), {"sensor_helper": sensor})(),
+            }
+        )
+        runtime = pa.TLTGPressureAdvance(_DeveloperCaptureConfig(printer))
+        gcmd = _FakeGcmd({"SECONDS": 0.1, "RATE": 40})
+        output = mock.mock_open()
+        with mock.patch("builtins.open", output), mock.patch.object(
+            pa.time, "time", return_value=1234
+        ):
+            runtime.cmd_origin_capture(gcmd)
+        self.assertEqual(sensor.origin_calls, 4)
+        self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [])
+        self.assertEqual(sensor.mcu.read_command.sends, [])
+        self.assertEqual(
+            gcmd.responses,
+            ["PA_ORIGIN_CAPTURE=/tmp/tltg_pa_origin_capture_1234.json"],
+        )
+
+    def test_developer_sensor_check_records_config_sequence(self):
+        sensor = _FakeSensor(config=[60, 60, 60])
+        printer = _CaptureRuntimePrinter(
+            {
+                "gcode": _FakeGcode(),
+                "print_stats": _StatusObject({"state": "standby"}),
+                "idle_timeout": _StatusObject({"state": "Idle"}),
+                "probe_air": type("Probe", (), {"sensor_helper": sensor})(),
+            }
+        )
+        runtime = pa.TLTGPressureAdvance(_DeveloperCaptureConfig(printer))
+        gcmd = _FakeGcmd({"REPEATS": 3, "INTERVAL": 0.1})
+        output = mock.mock_open()
+        with mock.patch("builtins.open", output), mock.patch.object(
+            pa.time, "time", return_value=1234
+        ):
+            runtime.cmd_sensor_check(gcmd)
+        self.assertEqual(
+            gcmd.responses, ["PA_SENSOR_CHECK=/tmp/tltg_pa_sensor_check_1234.json"]
+        )
+        self.assertEqual(
+            sensor.query_cs1237_config_read_cmd.sends,
+            [[sensor.oid], [sensor.oid], [sensor.oid]],
+        )
+        self.assertEqual(printer.shutdowns, [])
+
+    def test_developer_sensor_check_shuts_down_on_nonstock_config(self):
+        sensor = _FakeSensor(config=[60, 190])
+        printer = _CaptureRuntimePrinter(
+            {
+                "gcode": _FakeGcode(),
+                "print_stats": _StatusObject({"state": "standby"}),
+                "idle_timeout": _StatusObject({"state": "Idle"}),
+                "probe_air": type("Probe", (), {"sensor_helper": sensor})(),
+            }
+        )
+        runtime = pa.TLTGPressureAdvance(_DeveloperCaptureConfig(printer))
+        output = mock.mock_open()
+        with mock.patch("builtins.open", output), mock.patch.object(
+            pa.time, "time", return_value=1234
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "STOCK_SENSOR_RESTART_REQUIRED"
+            ):
+                runtime.cmd_sensor_check(
+                    _FakeGcmd({"REPEATS": 3, "INTERVAL": 0.1})
+                )
+        self.assertEqual(len(printer.shutdowns), 1)
+
+    def test_origin_adapter_uses_only_homing_state_and_cached_value(self):
+        sensor = _FakeSensor(origin_values=[-123])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        self.assertEqual(
+            adapter.validate_configuration(), {"oid": sensor.oid, "homing": 0}
+        )
+        self.assertEqual(adapter.read(), -123)
+        self.assertEqual(sensor.query_cs1237_home_state_cmd.sends, [[sensor.oid]])
+        self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [])
+        self.assertEqual(sensor.mcu.read_command.sends, [])
+
     def test_sensor_adapter_schedules_non_homing_reads_and_releases_ownership(self):
         sensor = _FakeSensor()
         printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})
@@ -1013,6 +1102,21 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         self.assertEqual(len(printer.shutdowns), 1)
         self.assertIn("FIRMWARE_RESTART required", printer.shutdowns[0])
 
+    def test_sensor_adapter_shuts_down_on_late_config_failure(self):
+        sensor = _FakeSensor()
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        pa.QidiCS1237Adapter(printer).capture(_FakeReactor(), 0.01, 100)
+        sensor.query_cs1237_config_read_cmd.config = 190
+        with self.assertRaisesRegex(
+            pa.CalibrationError, "STOCK_SENSOR_RESTART_REQUIRED"
+        ):
+            pa.QidiCS1237Adapter(printer).capture(
+                _FakeReactor(), 0.01, 100
+            )
+        self.assertEqual(len(printer.shutdowns), 1)
+
     def test_sensor_adapter_releases_local_ownership_when_unregister_fails(self):
         sensor = _FakeSensor(fail_unregister=True)
         printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})
@@ -1035,6 +1139,14 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
             "STOCK_SENSOR_STATE_UNVERIFIED", raised.exception.capture.issues
         )
         self.assertEqual(len(printer.shutdowns), 1)
+
+    def test_developer_sensor_commands_are_hard_disabled(self):
+        printer = _RuntimePrinter()
+        pa.TLTGPressureAdvance(_DeveloperCaptureConfig(printer))
+        self.assertFalse(pa.DIRECT_CAPTURE_ENABLED)
+        self.assertNotIn("_TLTG_PA_CAPTURE", printer.gcode.commands)
+        self.assertNotIn("_TLTG_PA_SENSOR_CHECK", printer.gcode.commands)
+        self.assertNotIn("_TLTG_PA_ORIGIN_CAPTURE", printer.gcode.commands)
 
     def test_calibration_command_is_hard_disabled_before_side_effects(self):
         printer = _RuntimePrinter()
@@ -1099,9 +1211,13 @@ class _FakeConfigReadCommand:
 
     def send(self, values):
         self.sends.append(list(values))
+        if isinstance(self.config, list):
+            config = self.config.pop(0)
+        else:
+            config = self.config
         return {
             "oid": values[0] if self.oid is None else self.oid,
-            "config": self.config,
+            "config": config,
         }
 
 
@@ -1174,6 +1290,7 @@ class _FakeSensor:
         fail_after=None,
         fail_unregister=False,
         homing=0,
+        origin_values=None,
     ):
         self.mcu = _FakeMcu(
             drop_indices=drop_indices,
@@ -1190,6 +1307,13 @@ class _FakeSensor:
             config, oid=config_oid
         )
         self.query_cs1237_home_state_cmd = _FakeHomeStateCommand(homing)
+        self.origin_values = list(origin_values or [1])
+        self.origin_calls = 0
+
+    def read_origin_data(self):
+        index = min(self.origin_calls, len(self.origin_values) - 1)
+        self.origin_calls += 1
+        return self.origin_values[index]
 
 
 class _FakeReactor:
