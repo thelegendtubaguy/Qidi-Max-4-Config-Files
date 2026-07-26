@@ -183,6 +183,26 @@ Optimized helpers SHALL shorten safe transitions, preserve caller state, and gua
 - **AND** `config/fluidd.cfg` remains unmodified
 - **AND** apparently unused stock globals remain preserved unless external use is disproven
 
+### Requirement: Load-cell pressure-advance calibration remains fail-closed until validated
+The optimized configuration SHALL reserve an operator-invokable load-cell pressure-advance calibration interface without enabling physical calibration or candidate reporting before Max 4 hardware validation is complete.
+
+#### Scenario: Explicit calibration inputs are required
+- **WHEN** `TLTG_PA_CALIBRATE` is invoked
+- **THEN** `TEMP=<celsius>` and `NOZZLE=<0.2|0.4|0.6|0.8>` are required
+- **AND** the command does not infer temperature or nozzle diameter from slicer, QIDI screen, Moonraker, or Klipper state
+
+#### Scenario: Unvalidated calibration has no physical effects
+- **WHEN** required inputs are valid while the production calibration gate remains disabled
+- **THEN** the command reports `PA_CALIBRATION_UNVALIDATED`
+- **AND** it returns before homing, heating, movement, sensor acquisition, extrusion, pressure-advance changes, or filament-source changes
+
+#### Scenario: Candidate output is non-persistent
+- **WHEN** hardware validation eventually permits a successful calibration result
+- **THEN** the response format is `PA_VALUE=<decimal> TEMP=<celsius> NOZZLE=<mm> PERSISTED=0`
+- **AND** failure output contains no `PA_VALUE=` token
+- **AND** calibration does not call `SAVE_CONFIG`, `SAVE_VARIABLE`, persist a G-code result variable, or alter slicer configuration
+- **AND** implementation remains in `installer/klipper/tltg-optimized-macros/pa_calibration.cfg` and `installer/klipper/extras/tltg_pa_calibration.py`
+
 ### Requirement: Motion-free error cancellation
 `OPTIMIZED_CANCEL_PRINT_ON_ERROR` SHALL complete shutdown and print-state cleanup before base cancellation without parking, wiping, or moving the toolhead.
 

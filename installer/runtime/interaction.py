@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import http.client
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -99,40 +101,72 @@ def maybe_restart_klipper(
     reporter,
     input_stream: TextIO | None,
     moonraker_query_url: str,
+    process_restart_required: bool = False,
     urlopen: UrlOpenFn = urllib.request.urlopen,
 ) -> bool:
+    manual_message = (
+        messages.RESTART_KLIPPER_SERVICE_TO_APPLY
+        if process_restart_required
+        else messages.RESTART_KLIPPER_TO_APPLY
+    )
     if input_stream is None:
-        reporter.line(messages.RESTART_KLIPPER_TO_APPLY)
+        reporter.line(manual_message)
         return False
     if not confirm_yes(
         reporter=reporter,
         input_stream=input_stream,
-        question=messages.RESTART_KLIPPER_PROMPT,
+        question=(
+            messages.RESTART_KLIPPER_SERVICE_PROMPT
+            if process_restart_required
+            else messages.RESTART_KLIPPER_PROMPT
+        ),
         instruction=messages.RESTART_KLIPPER_PROMPT_INSTRUCTION,
-        cancel_message=messages.RESTART_KLIPPER_TO_APPLY,
+        cancel_message=manual_message,
     ):
         return False
-    reporter.line(messages.RESTARTING_KLIPPER)
-    request = urllib.request.Request(
-        moonraker_restart_url(moonraker_query_url),
-        data=b"",
-        method="POST",
-    )
+
+    if process_restart_required:
+        reporter.line(messages.RESTARTING_KLIPPER_SERVICE)
+        request = urllib.request.Request(
+            machine_service_restart_url(moonraker_query_url),
+            data=json.dumps({"service": "klipper"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        success_message = messages.KLIPPER_SERVICE_RESTART_REQUESTED
+        failure_message = messages.COULD_NOT_RESTART_KLIPPER_SERVICE
+    else:
+        reporter.line(messages.RESTARTING_KLIPPER)
+        request = urllib.request.Request(
+            moonraker_restart_url(moonraker_query_url),
+            data=b"",
+            method="POST",
+        )
+        success_message = messages.KLIPPER_RESTARTED
+        failure_message = messages.COULD_NOT_RESTART_KLIPPER
     try:
         with urlopen(request, timeout=10) as response:
             response.read()
-    except (OSError, urllib.error.URLError, ValueError):
-        reporter.line(messages.COULD_NOT_RESTART_KLIPPER)
+    except (OSError, http.client.HTTPException, urllib.error.URLError, ValueError):
+        reporter.line(failure_message)
         return False
-    reporter.line(messages.KLIPPER_RESTARTED)
+    reporter.line(success_message)
     return True
 
 
 
 def moonraker_restart_url(moonraker_query_url: str) -> str:
+    return _moonraker_url(moonraker_query_url, "/printer/restart")
+
+
+def machine_service_restart_url(moonraker_query_url: str) -> str:
+    return _moonraker_url(moonraker_query_url, "/machine/services/restart")
+
+
+def _moonraker_url(moonraker_query_url: str, endpoint: str) -> str:
     parts = urllib.parse.urlsplit(moonraker_query_url)
     prefix = ""
     if parts.path.endswith("/printer/objects/query"):
         prefix = parts.path[: -len("/printer/objects/query")]
-    restart_path = f"{prefix}/printer/restart" if prefix else "/printer/restart"
-    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, restart_path, "", ""))
+    path = f"{prefix}{endpoint}" if prefix else endpoint
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, "", ""))

@@ -68,7 +68,7 @@ Install, reinstall, restore, and uninstall SHALL validate ownership and runtime 
 - **AND** differences between prior bundle hashes and new bundle content alone are treated as expected version changes, not local drift
 - **AND** guarded patches are applied and `[include tltg-optimized-macros/*.cfg]` is placed after the stock macro include
 - **AND** hashes and postflight lines are verified before writing mode-`0600` `config/tltg_optimized_state.yaml`
-- **AND** state records package and firmware identity, backup label, managed-tree hashes, guarded patch provenance, and optional source/system ledgers
+- **AND** state records package and firmware identity, backup label, managed-tree hashes, guarded patch provenance, and optional source-patch, external-file, and system ledgers
 - **AND** failure after the first write restores tracked preimages and leaves the previous state file unchanged
 
 #### Scenario: Dry-run and interruption do not mutate state
@@ -78,8 +78,8 @@ Install, reinstall, restore, and uninstall SHALL validate ownership and runtime 
 
 #### Scenario: Uninstall is ledger-bound
 - **WHEN** uninstall finds a valid supported installed-state ledger
-- **THEN** it backs up config and declared external sources before writes
-- **AND** reverts only unchanged installer-owned patches and sources
+- **THEN** it backs up config and declared source-patch targets before writes
+- **AND** reverts only unchanged installer-owned patches, source patches, and external files
 - **AND** reports and preserves user-modified targets
 - **AND** removes the optimized include and managed tree
 - **AND** deletes installed state only after postflight succeeds
@@ -100,8 +100,8 @@ Install, reinstall, restore, and uninstall SHALL validate ownership and runtime 
 - **AND** demo-TUI performs no printer, lock, backup, or config mutation
 - **AND** debug output remains terminal-only
 
-### Requirement: Guarded managed-source lifecycle and activation
-The installer SHALL manage vendor Python only through validated firmware-scoped provenance, atomic and recoverable file transactions, guarded restoration, and verified replacement of the Klipper service process.
+### Requirement: Guarded managed-Python lifecycle and activation
+The installer SHALL manage source patches and project-owned external Python files through validated provenance, atomic and recoverable file transactions, guarded restoration, and verified replacement of the Klipper service process.
 
 #### Scenario: Source manifest and preflight are trusted
 - **WHEN** a managed-source entry is validated
@@ -118,6 +118,29 @@ The installer SHALL manage vendor Python only through validated firmware-scoped 
 - **AND** the first verified original bytes, SHA-256, and mode are retained across upgrades
 - **AND** the payload is replaced atomically in the destination directory with its mode preserved
 - **AND** Python syntax and the declared desired SHA-256 are verified before installed state is committed
+
+#### Scenario: External-file manifest and state are trusted
+- **WHEN** a project-owned external-file entry is validated
+- **THEN** its ID and destination are unique across source patches and external files
+- **AND** its bundle source is a non-symlink regular file under `installer/klipper/` whose SHA-256 matches the manifest
+- **AND** its destination is a relative non-traversing path under `klippy/extras/`
+- **AND** state binds the installed SHA-256 and any complete strict-base64 preimage bytes, SHA-256, and mode tuple
+- **AND** malformed preimages, path escape, destination collision, symlinks, or unowned live content fail before backup or writes
+
+#### Scenario: External-file deployment is transactional
+- **WHEN** a new or previously managed external Python file changes
+- **THEN** the pending-activation marker exists before the file write
+- **AND** the destination is replaced atomically and its manifest hash is verified before state is committed
+- **AND** upgrades require the live destination to match the prior installed hash and preserve the first recorded preimage
+- **AND** later transaction failure restores the prior bytes and mode or removes a destination created by the failed install
+
+#### Scenario: External-file uninstall and archive restore preserve ownership
+- **WHEN** uninstall or `restore.sh` processes a project-owned external Python file
+- **THEN** uninstall removes only content matching the ledger's installed hash or restores its validated preimage
+- **AND** unknown live drift fails before config, managed-tree, or state mutation
+- **AND** archive restore reconstructs declared external-file presence from archived state using an exact matching current bundle payload
+- **AND** an archived state that omits the external file requires the managed payload to be absent after restore
+- **AND** removal or restoration is rollback-tracked and binds activation to the expected hash or expected absence
 
 #### Scenario: Source state is validated before trust
 - **WHEN** a schema-version-1 installed-state ledger is loaded
@@ -143,7 +166,7 @@ The installer SHALL manage vendor Python only through validated firmware-scoped 
 
 #### Scenario: Source activation requires a new ready process
 - **WHEN** managed Python is written, restored, rolled back, or remains pending activation
-- **THEN** `/home/qidi/printer_data/.tltg_optimized_klipper_restart_required` exists with mode `0600` and binds each destination to its intended live hash
+- **THEN** `/home/qidi/printer_data/.tltg_optimized_klipper_restart_required` exists with mode `0600` and binds each destination to its intended live hash or expected absence
 - **AND** activation records a positive integer process ID from `GET /printer/info`
 - **AND** sends `POST /machine/services/restart` with content type `application/json` and JSON `{"service":"klipper"}`
 - **AND** succeeds only after bounded polling observes `ready` under a different positive integer process ID
@@ -151,7 +174,7 @@ The installer SHALL manage vendor Python only through validated firmware-scoped 
 
 #### Scenario: Every entrypoint resolves pending activation
 - **WHEN** install, uninstall, restore, or auto-update encounters valid pending activation
-- **THEN** automatic activation is blocked if any bound live source hash has drifted
+- **THEN** automatic activation is blocked if any bound managed-Python destination differs from its expected hash or expected absence
 - **AND** interactive flows verify an accepted service restart or retain the marker and manual instructions
 - **AND** `--yes` and auto-update require verified restart after idle-printer preflight and return nonzero on failure
 - **AND** the marker is removed atomically only after verified activation

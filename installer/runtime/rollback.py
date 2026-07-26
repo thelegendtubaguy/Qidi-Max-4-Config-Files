@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,11 +44,20 @@ class TreeSnapshot:
 
 
 @dataclass(frozen=True)
+class RecoveryFileExpectation:
+    path: Path
+    existed: bool
+    sha256: str | None
+    mode: int | None
+
+
+@dataclass(frozen=True)
 class RecoverySentinelRecord:
     error: str
     backup_label: str | None
     backup_zip_path: Path | None
     rollback_failed_paths: tuple[str, ...]
+    file_expectations: tuple[RecoveryFileExpectation, ...]
 
 
 class RollbackJournal:
@@ -201,6 +213,26 @@ class RollbackJournal:
         ]
         for path in failed_paths:
             lines.append(f"rollback_failed_path: {path}")
+        restore_root = self.restore_target_path
+        for snapshot in self.file_snapshots.values():
+            if restore_root is not None and (
+                snapshot.path == restore_root or restore_root in snapshot.path.parents
+            ):
+                continue
+            payload = {
+                "path": str(snapshot.path),
+                "existed": snapshot.existed,
+                "sha256": (
+                    hashlib.sha256(snapshot.content).hexdigest()
+                    if snapshot.content is not None
+                    else None
+                ),
+                "mode": snapshot.mode,
+            }
+            encoded = base64.b64encode(
+                json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            ).decode("ascii")
+            lines.append(f"rollback_expected_file: {encoded}")
         atomic_write_text(
             self.recovery_sentinel_path,
             "\n".join(lines) + "\n",
@@ -275,6 +307,26 @@ def clear_recovery_sentinel(
                 raise RecoverySentinelClearError(
                     f"{RECOVERY_CLEAR_PREFIX} External source does not match backup: {destination}"
                 )
+    for expectation in record.file_expectations:
+        target = expectation.path
+        if not expectation.existed:
+            if target.exists() or target.is_symlink():
+                raise RecoverySentinelClearError(
+                    f"{RECOVERY_CLEAR_PREFIX} Expected external path to be absent: {target}"
+                )
+            continue
+        if target.is_symlink() or not target.is_file():
+            raise RecoverySentinelClearError(
+                f"{RECOVERY_CLEAR_PREFIX} Expected external file is missing or unsafe: {target}"
+            )
+        if hashlib.sha256(target.read_bytes()).hexdigest() != expectation.sha256:
+            raise RecoverySentinelClearError(
+                f"{RECOVERY_CLEAR_PREFIX} External file content does not match rollback state: {target}"
+            )
+        if target.stat().st_mode & 0o777 != expectation.mode:
+            raise RecoverySentinelClearError(
+                f"{RECOVERY_CLEAR_PREFIX} External file mode does not match rollback state: {target}"
+            )
     atomic_delete(path)
     return True
 
@@ -304,6 +356,7 @@ def load_recovery_sentinel(path: Path) -> RecoverySentinelRecord:
     backup_label: str | None = None
     backup_zip_path: Path | None = None
     rollback_failed_paths: list[str] = []
+    file_expectations: list[RecoveryFileExpectation] = []
     for line in raw.splitlines():
         if not line:
             continue
@@ -320,9 +373,45 @@ def load_recovery_sentinel(path: Path) -> RecoverySentinelRecord:
             backup_zip_path = Path(value) if value else None
         elif key == "rollback_failed_path":
             rollback_failed_paths.append(value)
+        elif key == "rollback_expected_file":
+            file_expectations.append(_decode_file_expectation(value))
     return RecoverySentinelRecord(
         error=error,
         backup_label=backup_label,
         backup_zip_path=backup_zip_path,
         rollback_failed_paths=tuple(rollback_failed_paths),
+        file_expectations=tuple(file_expectations),
     )
+
+
+def _decode_file_expectation(value: str) -> RecoveryFileExpectation:
+    try:
+        payload = json.loads(base64.b64decode(value, validate=True).decode("utf-8"))
+        path = payload["path"]
+        existed = payload["existed"]
+        sha256 = payload["sha256"]
+        mode = payload["mode"]
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RecoverySentinelClearError(
+            f"{RECOVERY_CLEAR_PREFIX} Sentinel external-file record is invalid."
+        ) from exc
+    if not isinstance(path, str) or not Path(path).is_absolute() or not isinstance(existed, bool):
+        raise RecoverySentinelClearError(
+            f"{RECOVERY_CLEAR_PREFIX} Sentinel external-file record is invalid."
+        )
+    if existed:
+        if (
+            not isinstance(sha256, str)
+            or len(sha256) != 64
+            or any(character not in "0123456789abcdef" for character in sha256)
+            or not isinstance(mode, int)
+            or not 0 <= mode <= 0o777
+        ):
+            raise RecoverySentinelClearError(
+                f"{RECOVERY_CLEAR_PREFIX} Sentinel external-file record is invalid."
+            )
+    elif sha256 is not None or mode is not None:
+        raise RecoverySentinelClearError(
+            f"{RECOVERY_CLEAR_PREFIX} Sentinel external-file record is invalid."
+        )
+    return RecoveryFileExpectation(Path(path), existed, sha256, mode)

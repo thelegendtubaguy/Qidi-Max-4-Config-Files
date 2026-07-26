@@ -27,6 +27,7 @@ ALLOWED_FILES = [
 ]
 ALLOWED_DIRECTORIES = [
     "installer/runtime",
+    "installer/klipper/extras",
     "installer/klipper/tltg-optimized-macros",
     "installer/klipper/qidi",
     "installer/stock",

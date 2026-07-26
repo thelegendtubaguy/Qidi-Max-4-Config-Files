@@ -150,6 +150,51 @@ class RestoreHelperTests(unittest.TestCase):
             expected_config,
         )
         self.assertEqual(source.read_bytes(), expected_source)
+        self.assertFalse(
+            (
+                paths.managed_klipper_root
+                / "klippy/extras/tltg_pa_calibration.py"
+            ).exists()
+        )
+        self.assertFalse(paths.restart_marker_path.exists())
+
+    def test_restore_recreates_external_file_declared_by_archived_state(self):
+        printer_root, paths, _ = self._source_backup()
+        patch = self.manifest.install.source_patches[0]
+        source = paths.managed_klipper_root / patch.destination
+        archive = create_config_backup(
+            printer_data_root=printer_root,
+            source_directory="config",
+            backup_label=(
+                "tltg-optimized-macros-before-optimize-"
+                "01.01.06.03-26.07.26.2-20260726T000000Z"
+            ),
+            external_files=((patch.id, patch.destination, source),),
+            external_firmware="01.01.06.03",
+        )
+        pa_target = (
+            paths.managed_klipper_root
+            / "klippy/extras/tltg_pa_calibration.py"
+        )
+        pa_target.unlink()
+
+        rc = run_restore_helper(
+            paths,
+            self.manifest,
+            stream=io.StringIO(),
+            input_stream=io.StringIO("RESTORE\nY\n"),
+            backup_path=str(archive),
+            urlopen=moonraker_urlopen(),
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            pa_target.read_bytes(),
+            (
+                paths.installer_root
+                / "klipper/extras/tltg_pa_calibration.py"
+            ).read_bytes(),
+        )
         self.assertFalse(paths.restart_marker_path.exists())
 
     def test_cross_firmware_external_archives_are_rejected_before_write(self):

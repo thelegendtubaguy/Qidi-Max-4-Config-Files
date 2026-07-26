@@ -271,11 +271,15 @@ class CliTests(unittest.TestCase):
         auto_prompt_index = output.index(
             "Would you like to enable hourly automatic updates for the TLTG configs?"
         )
-        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
+        restart_prompt_index = output.index(
+            "Managed Python source changed. Restart the Klipper service now to activate it?"
+        )
         self.assertLess(auto_prompt_index, restart_prompt_index)
         self.assertIn("Auto-updates not enabled.", output)
         self.assertIn("Klipper service restart remains required", output)
-        self.assertTrue((printer_root / ".tltg_optimized_klipper_restart_required").exists())
+        self.assertTrue(
+            (printer_root / ".tltg_optimized_klipper_restart_required").exists()
+        )
 
     def test_install_repairs_existing_auto_updates_before_restart(self):
         printer_root = copy_base_runtime()
@@ -301,7 +305,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         repair_index = output.index("Auto-updates repaired.")
-        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
+        restart_prompt_index = output.index(
+            "Managed Python source changed. Restart the Klipper service now to activate it?"
+        )
         self.assertLess(repair_index, restart_prompt_index)
         self.assertNotIn("Would you like to enable hourly automatic updates for the TLTG configs?", output)
 
@@ -361,7 +367,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         disable_index = output.index("Auto-updates disabled.")
-        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
+        restart_prompt_index = output.index(
+            "Managed Python source changed. Restart the Klipper service now to activate it?"
+        )
         self.assertLess(disable_index, restart_prompt_index)
 
     def test_install_demo_tui_returns_zero_without_writing(self):

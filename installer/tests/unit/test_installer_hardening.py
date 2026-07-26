@@ -36,6 +36,7 @@ class InstallerHardeningTests(unittest.TestCase):
             bundle_root=paths.bundle_root,
             installer_root=missing_installer_root,
             printer_data_root=paths.printer_data_root,
+            klipper_root=paths.klipper_root,
             config_root=paths.config_root,
             firmware_manifest_path=paths.firmware_manifest_path,
             moonraker_url=paths.moonraker_url,

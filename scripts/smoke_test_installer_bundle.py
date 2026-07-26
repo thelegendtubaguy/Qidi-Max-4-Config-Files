@@ -49,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("bundle smoke test is missing restore.sh")
     if not (bundle_root / "installer/system/qidiclient-static-gifs.tar.gz").exists():
         raise SystemExit("bundle smoke test is missing qidiclient static GIF archive")
+    if not (bundle_root / "installer/klipper/extras/tltg_pa_calibration.py").exists():
+        raise SystemExit("bundle smoke test is missing PA calibration Klipper extra")
     for firmware in ("01.01.06.03", "01.01.06.04"):
         if not (bundle_root / f"installer/stock/qidi-max4-defaults/firmwares/{firmware}/config/printer.cfg").exists():
             raise SystemExit(f"bundle smoke test is missing {firmware} stock config snapshot")
@@ -119,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(install.stdout + install.stderr)
         if not (plain_printer_root / "config/tltg_optimized_state.yaml").exists():
             raise SystemExit("install smoke test did not create state file")
+        pa_extra = plain_printer_root / "klipper/klippy/extras/tltg_pa_calibration.py"
+        if not pa_extra.exists():
+            raise SystemExit("install smoke test did not deploy PA calibration Klipper extra")
 
         uninstall_dry_run = run_command(
             [str(bundle_root / "install.sh"), "--uninstall", "--dry-run", "--plain"],
@@ -144,6 +149,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(uninstall.stdout + uninstall.stderr)
         if (plain_printer_root / "config/tltg_optimized_state.yaml").exists():
             raise SystemExit("uninstall smoke test did not remove state file")
+        if pa_extra.exists():
+            raise SystemExit("uninstall smoke test did not remove PA calibration Klipper extra")
 
         rich_printer_root = prepare_printer_root(workspace / "rich-printer")
         rich_env = build_env(rich_printer_root, moonraker_url=url)
@@ -303,6 +310,7 @@ def prepare_printer_root(root: Path) -> Path:
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXTURE_ROOT / "config", root / "config")
+    (root / "klipper/klippy/extras").mkdir(parents=True)
     shutil.copy2(FIXTURE_ROOT / "firmware_manifest.json", root / "firmware_manifest.json")
     homing = REPO_ROOT / "installer/klipper/qidi/homing.py"
     target = root / "klipper/klippy/extras"
@@ -316,6 +324,7 @@ def build_env(printer_root: Path, *, moonraker_url: str) -> dict[str, str]:
     env.update(
         {
             "TLTG_OPTIMIZED_PRINTER_DATA_ROOT": str(printer_root),
+            "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_root / "klipper"),
             "TLTG_OPTIMIZED_FIRMWARE_MANIFEST": str(printer_root / "firmware_manifest.json"),
             "TLTG_OPTIMIZED_MOONRAKER_URL": moonraker_url,
             "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_root / "klipper"),

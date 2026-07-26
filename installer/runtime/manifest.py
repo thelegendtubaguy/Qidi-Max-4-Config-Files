@@ -11,6 +11,7 @@ from .models import (
     FirmwareSpec,
     InstallSpec,
     LineSpec,
+    ManagedExternalFileSpec,
     ManagedTreeSpec,
     Manifest,
     PackageMeta,
@@ -118,8 +119,34 @@ def parse_manifest(raw: Any) -> Manifest:
             "install.managed_trees is not supported; use install.managed_tree."
         )
     if "managed_files" in install_raw:
-        raise ManifestValidationError("install.managed_files is not supported.")
+        raise ManifestValidationError("install.managed_files is not supported; use install.external_files.")
     managed_tree_raw = _require_mapping(install_raw, "managed_tree")
+    external_files_raw = install_raw.get("external_files", [])
+    if not isinstance(external_files_raw, list):
+        raise ManifestValidationError("Expected list at external_files.")
+    external_files = []
+    external_ids = set()
+    external_destinations = set()
+    for item in external_files_raw:
+        if not isinstance(item, dict):
+            raise ManifestValidationError("Expected mapping entries at external_files.")
+        file_id = _require_str(item, "id")
+        source = _validate_external_path(_require_str(item, "source"), "klipper")
+        destination = _validate_external_path(_require_str(item, "destination"), "klippy")
+        if file_id in external_ids:
+            raise ManifestValidationError(f"Duplicate external file id: {file_id}")
+        if destination in external_destinations:
+            raise ManifestValidationError(f"Duplicate external file destination: {destination}")
+        external_ids.add(file_id)
+        external_destinations.add(destination)
+        external_files.append(
+            ManagedExternalFileSpec(
+                id=file_id,
+                source=source,
+                destination=destination,
+                sha256=_require_sha256(item, "sha256"),
+            )
+        )
     ensure_lines = tuple(
         EnsureLineSpec(
             id=_require_str(item, "id"),
@@ -136,6 +163,16 @@ def parse_manifest(raw: Any) -> Manifest:
             "Manifest must define exactly one install.ensure_lines entry."
         )
     source_patches = _parse_source_patches(install_raw, firmware)
+    for patch in source_patches:
+        if patch.id in external_ids:
+            raise ManifestValidationError(
+                f"Managed Klipper file id is duplicated across source_patches and external_files: {patch.id}"
+            )
+        if patch.destination in external_destinations:
+            raise ManifestValidationError(
+                "Managed Klipper file destination is duplicated across source_patches "
+                f"and external_files: {patch.destination}"
+            )
     install = InstallSpec(
         ensure_directories=tuple(
             _validate_relative_path(item, allowed_roots=("config",))
@@ -157,6 +194,7 @@ def parse_manifest(raw: Any) -> Manifest:
         ),
         ensure_lines=ensure_lines,
         source_patches=source_patches,
+        external_files=tuple(external_files),
     )
 
     patches_raw = _require_mapping(raw, "patches")
@@ -414,6 +452,16 @@ def _validate_relative_path(path: str, *, allowed_roots: tuple[str, ...]) -> str
         allowed = ", ".join(allowed_roots)
         raise ManifestValidationError(f"Path must start with one of {allowed}: {path}")
     return pure.as_posix()
+
+
+def _validate_external_path(path: str, root: str) -> str:
+    validated = _validate_relative_path(path, allowed_roots=(root,))
+    parts = PurePosixPath(validated).parts
+    if len(parts) < 3 or parts[1] != "extras":
+        raise ManifestValidationError(
+            f"External file path must stay under {root}/extras/: {path}"
+        )
+    return validated
 
 
 def _validate_managed_tree_mode(mode: str) -> str:

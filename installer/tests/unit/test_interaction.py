@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import http.client
 import io
 import unittest
 
 from installer.runtime import messages
-from installer.runtime.interaction import confirm_yes, maybe_restart_klipper, moonraker_restart_url
+from installer.runtime.interaction import (
+    confirm_yes,
+    machine_service_restart_url,
+    maybe_restart_klipper,
+    moonraker_restart_url,
+)
 
 
 class _DummyReporter:
@@ -28,6 +34,11 @@ class _DummyResponse:
 
     def read(self):
         return b"{}"
+
+
+class _IncompleteResponse(_DummyResponse):
+    def read(self):
+        raise http.client.IncompleteRead(b"")
 
 
 class InteractionTests(unittest.TestCase):
@@ -92,6 +103,20 @@ class InteractionTests(unittest.TestCase):
             "http://127.0.0.1:7125/moonraker/printer/restart",
         )
 
+    def test_machine_service_restart_url_replaces_query_endpoint(self):
+        self.assertEqual(
+            machine_service_restart_url(
+                "http://127.0.0.1:7125/printer/objects/query?print_stats"
+            ),
+            "http://127.0.0.1:7125/machine/services/restart",
+        )
+        self.assertEqual(
+            machine_service_restart_url(
+                "http://127.0.0.1:7125/moonraker/printer/objects/query?print_stats"
+            ),
+            "http://127.0.0.1:7125/moonraker/machine/services/restart",
+        )
+
     def test_maybe_restart_klipper_accepts_yes_responses_and_posts_restart_request(self):
         for response in ("Y\n", "y\n", "Yes\n", "yes\n", "YES\n", " yes \n"):
             with self.subTest(response=response.strip()):
@@ -118,6 +143,61 @@ class InteractionTests(unittest.TestCase):
                 self.assertEqual(seen["timeout"], 10)
                 self.assertIn(messages.RESTARTING_KLIPPER, reporter.lines)
                 self.assertIn(messages.KLIPPER_RESTARTED, reporter.lines)
+
+    def test_process_restart_posts_machine_service_request(self):
+        reporter = _DummyReporter()
+        seen = {}
+
+        def fake_urlopen(request, timeout=0):
+            seen["full_url"] = request.full_url
+            seen["method"] = request.get_method()
+            seen["timeout"] = timeout
+            seen["content_type"] = request.headers.get("Content-type")
+            seen["data"] = request.data
+            return _DummyResponse()
+
+        restarted = maybe_restart_klipper(
+            reporter=reporter,
+            input_stream=io.StringIO("Y\n"),
+            moonraker_query_url="http://127.0.0.1:7125/printer/objects/query?print_stats",
+            process_restart_required=True,
+            urlopen=fake_urlopen,
+        )
+
+        self.assertTrue(restarted)
+        self.assertEqual(
+            seen["full_url"],
+            "http://127.0.0.1:7125/machine/services/restart",
+        )
+        self.assertEqual(seen["method"], "POST")
+        self.assertEqual(seen["timeout"], 10)
+        self.assertEqual(seen["content_type"], "application/json")
+        self.assertEqual(seen["data"], b'{"service": "klipper"}')
+        self.assertIn(messages.RESTARTING_KLIPPER_SERVICE, reporter.lines)
+        self.assertIn(messages.KLIPPER_SERVICE_RESTART_REQUESTED, reporter.lines)
+
+    def test_incomplete_process_restart_response_requires_manual_service_restart(self):
+        reporter = _DummyReporter()
+        restarted = maybe_restart_klipper(
+            reporter=reporter,
+            input_stream=io.StringIO("Y\n"),
+            moonraker_query_url="http://127.0.0.1:7125/printer/objects/query?print_stats",
+            process_restart_required=True,
+            urlopen=lambda request, timeout=0: _IncompleteResponse(),
+        )
+        self.assertFalse(restarted)
+        self.assertIn(messages.COULD_NOT_RESTART_KLIPPER_SERVICE, reporter.lines)
+
+    def test_noninteractive_process_restart_requires_manual_service_restart(self):
+        reporter = _DummyReporter()
+        restarted = maybe_restart_klipper(
+            reporter=reporter,
+            input_stream=None,
+            moonraker_query_url="http://127.0.0.1:7125/printer/objects/query?print_stats",
+            process_restart_required=True,
+        )
+        self.assertFalse(restarted)
+        self.assertIn(messages.RESTART_KLIPPER_SERVICE_TO_APPLY, reporter.lines)
 
     def test_maybe_restart_klipper_decline_prints_manual_restart_message(self):
         for response in ("N\n", "n\n", "No\n", "no\n", "NO\n", " no \n"):

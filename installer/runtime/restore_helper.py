@@ -8,6 +8,7 @@ from typing import Callable, TextIO
 
 import yaml
 
+from . import external_files
 from .backup import (
     format_backup_display_timestamp,
     list_installer_backups,
@@ -22,6 +23,7 @@ from .backup import (
     UNKNOWN_FIRMWARE_TOKEN,
 )
 from .firmware import detect_firmware_version
+from .fs_atomic import atomic_delete
 from .manifest import select_source_patch_variant
 from .models import Manifest, RuntimePaths
 from .path_safety import ensure_external_path_has_no_symlink_components
@@ -99,11 +101,24 @@ def run_restore_helper(
         package_version=parsed.package_version if parsed is not None else None,
         state_declares_source_patches=state_declares_sources,
     )
-    allowed = {patch.id: patch.destination for patch in manifest.install.source_patches}
+    source_entries = {
+        patch.id: patch.destination
+        for patch in manifest.install.source_patches
+    }
+    managed_entries = {
+        spec.id: spec.destination
+        for spec in manifest.install.external_files
+    }
+    allowed = {**source_entries, **managed_entries}
     external_firmware, external = load_external_backup_entries(
         backup_zip_path=selection.path,
-        allowed_entries=allowed,
+        allowed_entries=source_entries,
         require_manifest=require_external,
+    )
+    managed_external = _plan_managed_external_restore(
+        paths=paths,
+        manifest=manifest,
+        backup_snapshot=backup_snapshot,
     )
     restore_firmware = None
     if external:
@@ -117,6 +132,10 @@ def run_restore_helper(
     restart_targets = tuple(
         (patch_id, destination, hashlib.sha256(value).hexdigest())
         for patch_id, destination, value, _ in external
+    ) + tuple(
+        (spec.id, spec.destination, desired_sha256)
+        for spec, desired_sha256, changed in managed_external
+        if changed
     )
     _validate_external_restore_targets(
         paths=paths,
@@ -140,6 +159,11 @@ def run_restore_helper(
     journal.track_file(paths.restart_marker_path)
     for _, destination, _, _ in external:
         journal.track_file(paths.managed_klipper_root / destination)
+    for spec, _, changed in managed_external:
+        if changed:
+            journal.track_file(
+                paths.managed_klipper_root / spec.destination
+            )
     try:
         journal.note_write()
         restored_snapshot = restore_backup_snapshot(
@@ -169,6 +193,16 @@ def run_restore_helper(
             restore_external_backup_entries(
                 entries=external, destination_root=paths.managed_klipper_root
             )
+            for spec, desired_sha256, changed in managed_external:
+                if not changed:
+                    continue
+                journal.note_write()
+                if desired_sha256 is None:
+                    atomic_delete(
+                        paths.managed_klipper_root / spec.destination
+                    )
+                else:
+                    external_files.deploy(paths=paths, spec=spec)
     except Exception as exc:
         journal.rollback_or_raise(
             exc, backup_label=selection.label, backup_zip_path=selection.path
@@ -180,7 +214,7 @@ def run_restore_helper(
         backup_path=selection.path,
         restored_files=len(backup_snapshot),
     )
-    if external:
+    if restart_targets:
         activated = maybe_restart_pending_service(
             paths=paths,
             allowed_entries=allowed,
@@ -194,6 +228,101 @@ def run_restore_helper(
         verified_path=str(paths.printer_data_root / manifest.backup.source_directory)
     )
     return 0
+
+
+def _plan_managed_external_restore(
+    *,
+    paths: RuntimePaths,
+    manifest: Manifest,
+    backup_snapshot: dict[str, bytes],
+):
+    state_bytes = backup_snapshot.get("config/tltg_optimized_state.yaml")
+    archived = {}
+    if state_bytes is not None:
+        try:
+            raw = yaml.safe_load(state_bytes)
+        except yaml.YAMLError as exc:
+            raise RestoreHelperError(
+                "Archived installed state is malformed."
+            ) from exc
+        if not isinstance(raw, dict):
+            raise RestoreHelperError("Archived installed state is malformed.")
+        entries = raw.get("external_files", [])
+        if not isinstance(entries, list):
+            raise RestoreHelperError(
+                "Archived external-file state is malformed."
+            )
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise RestoreHelperError(
+                    "Archived external-file state is malformed."
+                )
+            file_id = entry.get("id")
+            destination = entry.get("destination")
+            installed_sha256 = entry.get("installed_sha256")
+            if (
+                not isinstance(file_id, str)
+                or not file_id
+                or file_id in archived
+                or not isinstance(destination, str)
+                or not isinstance(installed_sha256, str)
+                or len(installed_sha256) != 64
+                or any(
+                    value not in "0123456789abcdef"
+                    for value in installed_sha256
+                )
+            ):
+                raise RestoreHelperError(
+                    "Archived external-file state is malformed."
+                )
+            archived[file_id] = (destination, installed_sha256)
+
+    specs = {spec.id: spec for spec in manifest.install.external_files}
+    if set(archived) - set(specs):
+        raise RestoreHelperError(
+            "Archived external-file state is not supported by this bundle."
+        )
+
+    result = []
+    for spec in manifest.install.external_files:
+        source = external_files.source_path(paths, spec)
+        if (
+            source.is_symlink()
+            or not source.is_file()
+            or hashlib.sha256(source.read_bytes()).hexdigest() != spec.sha256
+        ):
+            raise RestoreHelperError(
+                f"Managed external-file source is invalid: {spec.source}"
+            )
+        archived_entry = archived.get(spec.id)
+        desired_sha256 = None
+        if archived_entry is not None:
+            if archived_entry != (spec.destination, spec.sha256):
+                raise RestoreHelperError(
+                    "Archived external-file payload is not available in this bundle: "
+                    f"{spec.destination}"
+                )
+            desired_sha256 = spec.sha256
+
+        target = paths.managed_klipper_root / spec.destination
+        ensure_external_path_has_no_symlink_components(
+            root=paths.managed_klipper_root, target=target
+        )
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise RestoreHelperError(
+                f"Managed external restore target is unsafe: {spec.destination}"
+            )
+        if target.exists():
+            live_sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+            if live_sha256 != spec.sha256:
+                raise RestoreHelperError(
+                    f"Managed external restore target has drifted: {spec.destination}"
+                )
+            changed = desired_sha256 is None
+        else:
+            changed = desired_sha256 is not None
+        result.append((spec, desired_sha256, changed))
+    return tuple(result)
 
 
 def _validate_external_restore_firmware(

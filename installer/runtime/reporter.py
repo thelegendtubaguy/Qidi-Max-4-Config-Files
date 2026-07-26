@@ -850,6 +850,7 @@ def rollback_recovery_groups(error: RollbackFailedError) -> tuple[DetailGroup, .
 def install_dry_run_groups(plan: InstallPlan) -> tuple[DetailGroup, ...]:
     return (
         DetailGroup("Managed-tree intent:", managed_tree_install_intent_rows(plan)),
+        DetailGroup("External-file intent:", external_file_intent_rows(plan.external_file_intents)),
         DetailGroup("Include-line intent:", install_include_intent_rows(plan)),
         DetailGroup("Guarded patch intent:", install_patch_intent_rows(plan.patch_results)),
         DetailGroup("Managed tree drift detection:", drift_report_rows(plan.managed_tree_drift)),
@@ -861,6 +862,7 @@ def install_dry_run_groups(plan: InstallPlan) -> tuple[DetailGroup, ...]:
 def uninstall_dry_run_groups(plan: UninstallPlan) -> tuple[DetailGroup, ...]:
     return (
         DetailGroup("Managed-tree intent:", managed_tree_uninstall_intent_rows(plan)),
+        DetailGroup("External-file intent:", external_file_intent_rows(plan.external_file_intents)),
         DetailGroup("Include-line intent:", uninstall_include_intent_rows(plan)),
         DetailGroup(
             "Guarded patch reversal intent:",
@@ -870,6 +872,16 @@ def uninstall_dry_run_groups(plan: UninstallPlan) -> tuple[DetailGroup, ...]:
         DetailGroup("State-file intent:", (f"would delete {plan.state_file_intent.path}",)),
     )
 
+
+
+def external_file_intent_rows(intents) -> tuple[str, ...]:
+    rows = []
+    for item in intents:
+        if item.source is None:
+            rows.append(f"would {item.action} {item.destination}")
+        else:
+            rows.append(f"would {item.action} {item.source} -> {item.destination}")
+    return tuple(rows)
 
 
 def install_patch_intent_rows(patch_results: tuple[PatchResult, ...]) -> tuple[str, ...]:

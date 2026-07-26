@@ -44,6 +44,10 @@ class ManagedTreeSourceError(InstallerError):
     pass
 
 
+class ExternalFileError(InstallerError):
+    pass
+
+
 class PathSafetyError(InstallerError):
     pass
 

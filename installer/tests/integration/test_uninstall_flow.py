@@ -6,7 +6,7 @@ import unittest
 from installer.runtime import klipper_cfg
 from installer.runtime.cli import resolve_runtime_paths
 from installer.runtime.compatibility import load_supported_upgrade_sources
-from installer.runtime.errors import InstalledPackageValidationError
+from installer.runtime.errors import ExternalFileError, InstalledPackageValidationError
 from installer.runtime.manifest import load_manifest
 from installer.runtime.reporter import PlainReporter
 from installer.runtime.runner import run_install
@@ -60,6 +60,7 @@ class UninstallFlowTests(unittest.TestCase):
         )
         self.assertFalse((paths.config_root / "tltg_optimized_state.yaml").exists())
         self.assertFalse((paths.config_root / "tltg-optimized-macros").exists())
+        self.assertFalse((paths.klipper_root / "klippy/extras/tltg_pa_calibration.py").exists())
         printer_cfg = (paths.config_root / "printer.cfg").read_text(encoding="utf-8")
         self.assertNotIn("[include tltg-optimized-macros/*.cfg]", printer_cfg)
         self.assertIn("homing_speed: 50", printer_cfg)
@@ -78,6 +79,28 @@ class UninstallFlowTests(unittest.TestCase):
         self.assertIn("Uninstalled.", output)
         self.assertIn("Klipper service process restarted and verified.", output)
         self.assertTrue(result.backup_zip_path.exists())
+
+    def test_uninstall_rejects_external_file_drift_before_writes(self):
+        printer_root = self._install_first()
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        destination = paths.klipper_root / "klippy/extras/tltg_pa_calibration.py"
+        destination.write_text("changed after install\n", encoding="utf-8")
+
+        with self.assertRaises(ExternalFileError):
+            run_uninstall(
+                paths,
+                self.manifest,
+                self.compatibility,
+                PlainReporter(io.StringIO()),
+                urlopen=moonraker_urlopen(),
+            )
+
+        self.assertEqual(destination.read_text(encoding="utf-8"), "changed after install\n")
+        self.assertTrue((paths.config_root / "tltg_optimized_state.yaml").exists())
+        self.assertTrue((paths.config_root / "tltg-optimized-macros").exists())
 
     def test_uninstall_preserves_user_modified_homing_override(self):
         printer_root = self._install_first()

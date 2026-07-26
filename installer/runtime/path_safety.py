@@ -8,25 +8,30 @@ from .models import Manifest, RuntimePaths
 
 
 
-def ensure_runtime_path_has_no_symlink_components(
-    *, printer_data_root: Path, target: Path
+def ensure_path_under_root_has_no_symlink_components(
+    *, root: Path, target: Path, root_name: str
 ) -> None:
     try:
-        relative = target.relative_to(printer_data_root)
+        relative = target.relative_to(root)
     except ValueError as exc:
-        raise PathSafetyError(
-            f"Runtime path is outside printer data root: {target}"
-        ) from exc
-    if printer_data_root.is_symlink():
-        raise PathSafetyError(
-            f"Runtime path uses a symlinked printer data root: {printer_data_root}"
-        )
-    current = printer_data_root
+        raise PathSafetyError(f"Runtime path is outside {root_name}: {target}") from exc
+    if root.is_symlink():
+        raise PathSafetyError(f"Runtime path uses a symlinked {root_name}: {root}")
+    current = root
     for part in relative.parts:
         current = current / part
         if current.is_symlink():
             raise PathSafetyError(f"Runtime path contains a symlink: {current}")
 
+
+def ensure_runtime_path_has_no_symlink_components(
+    *, printer_data_root: Path, target: Path
+) -> None:
+    ensure_path_under_root_has_no_symlink_components(
+        root=printer_data_root,
+        target=target,
+        root_name="printer data root",
+    )
 
 
 def ensure_external_path_has_no_symlink_components(*, root: Path, target: Path) -> None:
@@ -68,6 +73,7 @@ def ensure_install_paths_safe(*, paths: RuntimePaths, manifest: Manifest) -> Non
             printer_data_root=paths.printer_data_root,
             target=target,
         )
+    _ensure_external_paths_safe(paths=paths, manifest=manifest)
 
 
 
@@ -80,6 +86,16 @@ def ensure_uninstall_paths_safe(
         ensure_runtime_path_has_no_symlink_components(
             printer_data_root=paths.printer_data_root,
             target=target,
+        )
+    _ensure_external_paths_safe(paths=paths, manifest=manifest)
+
+
+def _ensure_external_paths_safe(*, paths: RuntimePaths, manifest: Manifest) -> None:
+    for spec in manifest.install.external_files:
+        ensure_path_under_root_has_no_symlink_components(
+            root=paths.managed_klipper_root,
+            target=paths.managed_klipper_root / spec.destination,
+            root_name="Klipper root",
         )
 
 

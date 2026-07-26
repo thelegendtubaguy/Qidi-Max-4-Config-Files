@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from installer.runtime import klipper_cfg
 from installer.runtime.cli import resolve_runtime_paths
-from installer.runtime.errors import ActivePrintError, OperationCancelled, PreflightTargetsError
+from installer.runtime.errors import ActivePrintError, ExternalFileError, OperationCancelled, PreflightTargetsError
 from installer.runtime.manifest import load_manifest
 from installer.runtime.reporter import PlainReporter
 from installer.runtime.runner import run_install
@@ -69,6 +69,10 @@ class InstallFlowTests(unittest.TestCase):
         result = run_install(paths, self.manifest, reporter=PlainReporter(stream), urlopen=moonraker_urlopen())
 
         self.assertTrue((paths.config_root / "tltg_optimized_state.yaml").exists())
+        self.assertEqual(
+            (paths.klipper_root / "klippy/extras/tltg_pa_calibration.py").read_bytes(),
+            (paths.installer_root / "klipper/extras/tltg_pa_calibration.py").read_bytes(),
+        )
         printer_cfg = (paths.config_root / "printer.cfg").read_text(encoding="utf-8")
         self.assertIn("[include tltg-optimized-macros/*.cfg]", printer_cfg)
         self.assertIn("homing_speed: 100", printer_cfg)
@@ -90,6 +94,61 @@ class InstallFlowTests(unittest.TestCase):
         self.assertIn("Installed.", output)
         self.assertIn("Klipper service process restarted and verified.", output)
         self.assertTrue(result.backup_zip_path.exists())
+
+    def test_external_file_collision_fails_before_runtime_writes(self):
+        printer_root = copy_base_runtime()
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        destination = paths.klipper_root / "klippy/extras/tltg_pa_calibration.py"
+        destination.write_text("user-owned\n", encoding="utf-8")
+
+        with self.assertRaises(ExternalFileError):
+            run_install(
+                paths,
+                self.manifest,
+                reporter=PlainReporter(io.StringIO()),
+                urlopen=moonraker_urlopen(),
+            )
+
+        self.assertEqual(destination.read_text(encoding="utf-8"), "user-owned\n")
+        self.assertFalse((paths.config_root / "tltg_optimized_state.yaml").exists())
+        self.assertFalse((paths.config_root / "tltg-optimized-macros").exists())
+
+    def test_external_file_is_preserved_across_reinstall(self):
+        printer_root = copy_base_runtime()
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        run_install(paths, self.manifest, PlainReporter(io.StringIO()), urlopen=moonraker_urlopen())
+        run_install(paths, self.manifest, PlainReporter(io.StringIO()), urlopen=moonraker_urlopen())
+
+        self.assertEqual(
+            (paths.klipper_root / "klippy/extras/tltg_pa_calibration.py").read_bytes(),
+            (paths.installer_root / "klipper/extras/tltg_pa_calibration.py").read_bytes(),
+        )
+
+    def test_failed_install_rolls_back_external_file(self):
+        printer_root = copy_base_runtime()
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        destination = paths.klipper_root / "klippy/extras/tltg_pa_calibration.py"
+
+        with patch("installer.runtime.runner.mirror_tree", side_effect=RuntimeError("injected")):
+            with self.assertRaises(RuntimeError):
+                run_install(
+                    paths,
+                    self.manifest,
+                    reporter=PlainReporter(io.StringIO()),
+                    urlopen=moonraker_urlopen(),
+                )
+
+        self.assertFalse(destination.exists())
+        self.assertFalse((paths.config_root / "tltg_optimized_state.yaml").exists())
 
     def test_happy_path_install_on_firmware_04_stock_config(self):
         printer_root = copy_base_runtime()

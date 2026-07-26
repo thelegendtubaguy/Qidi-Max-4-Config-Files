@@ -65,6 +65,10 @@ KLIPPER_SERVICE_RESTART_PROMPT_INSTRUCTION = "Type Y/YES to restart and verify K
 KLIPPER_SERVICE_RESTART_PENDING = "Klipper service restart remains required to activate managed Python source."
 KLIPPER_SERVICE_RESTARTED = "Klipper service process restarted and verified."
 KLIPPER_SERVICE_RESTART_FAILED = "Klipper service restart could not be verified. The activation marker remains; restart Klipper service manually, then retry the installer."
+RESTART_KLIPPER_SERVICE_TO_APPLY = (
+    "Restart the Klipper service process to reload managed Python extras; "
+    "Fluidd's Restart command is not sufficient."
+)
 
 LEGACY_MANUAL_INSTALL_PROMPT = "Legacy manually-copied optimized configs were detected. Continue by rolling stock-managed configs back to QIDI stock first?"
 LEGACY_MANUAL_INSTALL_PROMPT_INSTRUCTION = "Type Y/YES to back up the current config directory, restore the bundled QIDI stock snapshot, restart qidi-client.service, and continue installation, or N/NO to cancel. Stock-managed config files will be overwritten; MCU_ID.cfg, box.cfg, fluidd.cfg, and saved_variables.cfg are preserved."
@@ -94,10 +98,19 @@ UNINSTALL_CONFIRMATION_PROMPT = "Are you sure you want to uninstall?"
 UNINSTALL_CONFIRMATION_INSTRUCTION = "Type Y/YES to continue or N/NO to cancel."
 UNINSTALL_CANCELLED = "Uninstall cancelled."
 RESTART_KLIPPER_PROMPT = "Would you like me to restart Klipper to apply changes?"
+RESTART_KLIPPER_SERVICE_PROMPT = (
+    "Would you like me to restart the Klipper service process to reload managed Python extras?"
+)
 RESTART_KLIPPER_PROMPT_INSTRUCTION = "Type Y/YES to restart Klipper or N/NO to skip."
 RESTARTING_KLIPPER = "Restarting Klipper..."
+RESTARTING_KLIPPER_SERVICE = "Restarting the Klipper service process..."
 KLIPPER_RESTARTED = "Klipper restart requested."
+KLIPPER_SERVICE_RESTART_REQUESTED = "Klipper service restart requested."
 COULD_NOT_RESTART_KLIPPER = "Could not restart Klipper automatically. Restart Klipper to apply changes."
+COULD_NOT_RESTART_KLIPPER_SERVICE = (
+    "Could not restart the Klipper service automatically. Restart the Klipper service "
+    "process to reload managed Python extras; Fluidd's Restart command is not sufficient."
+)
 
 USER_MODIFIED_PATCH_TARGETS = "User-modified patch targets:"
 MANAGED_TREE_DRIFT_OVERWRITTEN = "Managed tree drift overwritten:"

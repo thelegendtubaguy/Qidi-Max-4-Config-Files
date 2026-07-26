@@ -1,0 +1,44 @@
+{
+  "decode": {
+    "payload_hex": "01000000ffff7f0000008000ffffff00",
+    "counts": [1, 8388607, -8388608, -1]
+  },
+  "timing": {
+    "sample_rate": 1000.0,
+    "batches": [
+      {"receive_time": 1.003, "counts": [1, 2, 3, 4]},
+      {"receive_time": 1.010, "counts": [5, 6]}
+    ],
+    "expected_gap_count": 1
+  },
+  "clearing": {
+    "sample_times": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9],
+    "excluded_intervals": [[0.3, 0.6]],
+    "expected_times": [0.0, 0.1, 0.2, 0.7, 0.8, 0.9]
+  },
+  "waveforms": [
+    {"name": "insufficient", "k": 0.0, "polarity": 1, "undershoot": 0.0},
+    {"name": "acceptable", "k": 0.03, "polarity": 1, "undershoot": 0.03},
+    {"name": "excessive", "k": 0.05, "polarity": 1, "undershoot": 0.10},
+    {"name": "negative-polarity", "k": 0.05, "polarity": -1, "undershoot": 0.10},
+    {"name": "post-flap-settled", "k": 0.03, "polarity": 1, "undershoot": 0.03, "exclude_before": 0.0}
+  ],
+  "quality_cases": [
+    {"name": "acceptable", "coverage": 1.0, "max_gap": 0.001, "timing_residual": 0.001},
+    {"name": "dropped", "coverage": 0.8, "max_gap": 0.001, "timing_residual": 0.001, "expected_reason": "INSUFFICIENT_COVERAGE"},
+    {"name": "sample-gap", "coverage": 1.0, "max_gap": 0.01, "timing_residual": 0.001, "expected_reason": "SAMPLE_GAP"},
+    {"name": "timing-shifted", "coverage": 1.0, "max_gap": 0.001, "timing_residual": 0.01, "expected_reason": "TIMING_MISALIGNMENT"}
+  ],
+  "rejections": [
+    "NO_DATA",
+    "SATURATED",
+    "WEAK_OR_NOISY_SIGNAL",
+    "INCONSISTENT_CYCLES",
+    "INSUFFICIENT_CORROBORATION",
+    "NON_MONOTONIC_RESPONSE",
+    "INSUFFICIENT_COVERAGE",
+    "SAMPLE_GAP",
+    "TIMING_MISALIGNMENT",
+    "K_RANGE_NOT_BRACKETED"
+  ]
+}

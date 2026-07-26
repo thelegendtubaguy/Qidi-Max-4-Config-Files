@@ -53,7 +53,7 @@ def read_printer_info(moonraker_url: str, *, urlopen=urllib.request.urlopen) -> 
 
 def write_restart_marker(
     paths,
-    targets: Sequence[tuple[str, str, str]],
+    targets: Sequence[tuple[str, str, str | None]],
     *,
     operation: str,
     process_id: int,
@@ -71,7 +71,7 @@ def write_restart_marker(
             or patch_id in seen_ids
             or not _valid_destination(destination)
             or destination in seen_destinations
-            or not _sha256(sha256)
+            or (sha256 is not None and not _sha256(sha256))
         ):
             raise ProcessRestartError("Klipper restart marker targets are invalid.")
         seen_ids.add(patch_id)
@@ -121,7 +121,10 @@ def load_restart_marker(paths, *, allowed_entries: Mapping[str, str]) -> dict:
             or not _valid_destination(destination)
             or destination in seen_destinations
             or allowed_entries.get(patch_id) != destination
-            or not _sha256(target.get("sha256"))
+            or (
+                target.get("sha256") is not None
+                and not _sha256(target.get("sha256"))
+            )
         ):
             raise ProcessRestartError("Klipper restart marker target is malformed.")
         seen_ids.add(patch_id)
@@ -142,9 +145,24 @@ def restart_pending(
     marker = load_restart_marker(paths, allowed_entries=allowed_entries)
     for target in marker["targets"]:
         path = destination_path(paths, target["destination"])
-        ensure_external_path_has_no_symlink_components(root=paths.managed_klipper_root, target=path)
-        if not path.is_file() or path.is_symlink() or sha256_bytes(path.read_bytes()) != target["sha256"]:
-            raise ProcessRestartError(f"Pending Klipper source has drifted: {target['destination']}")
+        ensure_external_path_has_no_symlink_components(
+            root=paths.managed_klipper_root, target=path
+        )
+        expected_sha256 = target["sha256"]
+        if expected_sha256 is None:
+            if path.exists() or path.is_symlink():
+                raise ProcessRestartError(
+                    f"Pending Klipper source has drifted: {target['destination']}"
+                )
+            continue
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or sha256_bytes(path.read_bytes()) != expected_sha256
+        ):
+            raise ProcessRestartError(
+                f"Pending Klipper source has drifted: {target['destination']}"
+            )
     pre_restart_pid = marker["pre_restart_process_id"]
     current = _read_printer_info_with_retry(
         paths.moonraker_url, urlopen=urlopen, sleep=sleep, attempts=attempts

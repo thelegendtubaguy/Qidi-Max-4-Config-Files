@@ -10,6 +10,7 @@ import yaml
 
 from .fs_atomic import atomic_delete, atomic_write_text
 from .models import (
+    ExternalFileState,
     InstalledState,
     ManagedTreeFileRecord,
     ManagedTreeState,
@@ -55,12 +56,85 @@ def parse_installed_state(raw: Any) -> InstalledState:
         result = _require_str(item, "install_result")
         if result not in {"applied", "noop_desired", "user_modified"}:
             raise StateValidationError("Unsupported patch install_result.")
-        patch_ledger.append(PatchLedgerEntry(
-            id=_require_str(item, "id"), file=_validate_config_path(_require_str(item, "file")),
-            section=_require_str(item, "section"), option=_require_str(item, "option"),
-            expected=_require_str(item, "expected"), desired=_require_str(item, "desired"), install_result=result,
-        ))
+        patch_ledger.append(
+            PatchLedgerEntry(
+                id=_require_str(item, "id"),
+                file=_validate_config_path(_require_str(item, "file")),
+                section=_require_str(item, "section"),
+                option=_require_str(item, "option"),
+                expected=_require_str(item, "expected"),
+                desired=_require_str(item, "desired"),
+                install_result=result,
+            )
+        )
     source_patches = _parse_source_patches(raw.get("source_patches", []))
+
+    external_files_raw = raw.get("external_files", [])
+    if not isinstance(external_files_raw, list):
+        raise StateValidationError("external_files must be a list.")
+    external_files = []
+    external_ids = set()
+    external_destinations = set()
+    for item in external_files_raw:
+        if not isinstance(item, dict):
+            raise StateValidationError("external_files entries must be mappings.")
+        file_id = _require_str(item, "id")
+        destination = _validate_external_path(_require_str(item, "destination"))
+        installed_sha256 = _validate_sha256(_require_str(item, "installed_sha256"))
+        if file_id in external_ids or destination in external_destinations:
+            raise StateValidationError("external_files ids and destinations must be unique.")
+        external_ids.add(file_id)
+        external_destinations.add(destination)
+        preimage_b64 = item.get("preimage_b64")
+        preimage_sha256 = item.get("preimage_sha256")
+        preimage_mode = item.get("preimage_mode")
+        if preimage_b64 is not None and not isinstance(preimage_b64, str):
+            raise StateValidationError("external_files preimage_b64 must be a string.")
+        if preimage_sha256 is not None:
+            if not isinstance(preimage_sha256, str):
+                raise StateValidationError("external_files preimage_sha256 must be a string.")
+            preimage_sha256 = _validate_sha256(preimage_sha256)
+        if preimage_mode is not None and (
+            isinstance(preimage_mode, bool)
+            or not isinstance(preimage_mode, int)
+            or not 0 <= preimage_mode <= 0o777
+        ):
+            raise StateValidationError("external_files preimage_mode is invalid.")
+        if any(value is not None for value in (preimage_b64, preimage_sha256, preimage_mode)) and any(
+            value is None for value in (preimage_b64, preimage_sha256, preimage_mode)
+        ):
+            raise StateValidationError("external_files preimage fields must be complete.")
+        if preimage_b64 is not None:
+            try:
+                preimage = base64.b64decode(
+                    preimage_b64.encode("ascii"), validate=True
+                )
+            except (ValueError, UnicodeEncodeError, binascii.Error) as exc:
+                raise StateValidationError(
+                    "external_files preimage_b64 must be strict base64."
+                ) from exc
+            if hashlib.sha256(preimage).hexdigest() != preimage_sha256:
+                raise StateValidationError(
+                    "external_files preimage does not match preimage_sha256."
+                )
+        external_files.append(
+            ExternalFileState(
+                id=file_id,
+                destination=destination,
+                installed_sha256=installed_sha256,
+                preimage_b64=preimage_b64,
+                preimage_sha256=preimage_sha256,
+                preimage_mode=preimage_mode,
+            )
+        )
+    source_ids = {item.id for item in source_patches}
+    source_destinations = {item.destination for item in source_patches}
+    if source_ids & external_ids or source_destinations & external_destinations:
+        raise StateValidationError(
+            "Managed Klipper file IDs and destinations must be unique across "
+            "source_patches and external_files."
+        )
+
     system_ledger = raw.get("system_ledger")
     if system_ledger is not None and not isinstance(system_ledger, dict):
         raise StateValidationError("system_ledger must be a mapping when present.")
@@ -68,8 +142,14 @@ def parse_installed_state(raw: Any) -> InstalledState:
         schema_version=1, package_id=_require_str(package, "id"), package_version=_require_str(package, "version"),
         runtime_firmware=_require_str(runtime, "firmware"), backup_label=_require_str(backup, "label"),
         installed_at=_require_str(raw, "installed_at"),
-        managed_tree=ManagedTreeState(root=_validate_config_path(_require_str(managed_tree, "root")), files=tree_files),
-        patch_ledger=tuple(patch_ledger), source_patches=source_patches, system_ledger=system_ledger,
+        managed_tree=ManagedTreeState(
+            root=_validate_config_path(_require_str(managed_tree, "root")),
+            files=tree_files,
+        ),
+        patch_ledger=tuple(patch_ledger),
+        source_patches=source_patches,
+        external_files=tuple(external_files),
+        system_ledger=system_ledger,
     )
 
 
@@ -113,8 +193,40 @@ def write_installed_state(path: Path, state: InstalledState) -> None:
         "schema_version": 1, "package": {"id": state.package_id, "version": state.package_version},
         "runtime": {"firmware": state.runtime_firmware}, "backup": {"label": state.backup_label},
         "installed_at": state.installed_at,
-        "managed_tree": {"root": state.managed_tree.root, "files": [item.__dict__ for item in state.managed_tree.files]},
-        "patch_ledger": [entry.__dict__ for entry in state.patch_ledger],
+        "managed_tree": {
+            "root": state.managed_tree.root,
+            "files": [
+                {"path": item.path, "sha256": item.sha256}
+                for item in state.managed_tree.files
+            ],
+        },
+        "external_files": [
+            {
+                key: value
+                for key, value in {
+                    "id": item.id,
+                    "destination": item.destination,
+                    "installed_sha256": item.installed_sha256,
+                    "preimage_b64": item.preimage_b64,
+                    "preimage_sha256": item.preimage_sha256,
+                    "preimage_mode": item.preimage_mode,
+                }.items()
+                if value is not None
+            }
+            for item in state.external_files
+        ],
+        "patch_ledger": [
+            {
+                "id": entry.id,
+                "file": entry.file,
+                "section": entry.section,
+                "option": entry.option,
+                "expected": entry.expected,
+                "desired": entry.desired,
+                "install_result": entry.install_result,
+            }
+            for entry in state.patch_ledger
+        ],
     }
     if state.source_patches:
         document["source_patches"] = [{
@@ -156,6 +268,22 @@ def _sha256(mapping: dict[str, Any], key: str) -> str:
     if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
         raise StateValidationError(f"{key} must be SHA-256 hex.")
     return value
+
+
+def _validate_sha256(value: str) -> str:
+    value = value.lower()
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise StateValidationError("Expected SHA-256 hex string.")
+    return value
+
+
+def _validate_external_path(path: str) -> str:
+    pure = PurePosixPath(path)
+    if pure.is_absolute() or any(part == ".." for part in pure.parts):
+        raise StateValidationError(f"Path is not allowed: {path}")
+    if len(pure.parts) < 3 or pure.parts[:2] != ("klippy", "extras"):
+        raise StateValidationError(f"External state paths must stay under klippy/extras/: {path}")
+    return pure.as_posix()
 
 
 def _validate_config_path(path: str) -> str:

@@ -34,6 +34,20 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertIn("SCREWS_TILT_CALCULATE", screws_gcode)
         self.assertNotIn("params.", screws_gcode)
 
+    def test_pa_calibration_requires_explicit_inputs_and_only_forwards(self):
+        text = (OPTIMIZED_MACRO_ROOT / "pa_calibration.cfg").read_text(encoding="utf-8")
+        self.assertIn("[tltg_pa_calibration]", text)
+        self.assertIn("developer_capture: False", text)
+        gcode = self._macro_gcode("TLTG_PA_CALIBRATE")
+        self.assertIn("params.TEMP is not defined", gcode)
+        self.assertIn("params.NOZZLE is not defined", gcode)
+        self.assertIn("_TLTG_PA_CALIBRATE TEMP={params.TEMP} NOZZLE={params.NOZZLE}", gcode)
+        self.assertNotIn("SAVE_CONFIG", gcode)
+        self.assertNotIn("SAVE_VARIABLE", gcode)
+        self.assertNotIn("SET_GCODE_VARIABLE", gcode)
+        self.assertNotIn("G28", gcode)
+        self.assertNotIn("G1", gcode)
+
     def test_cancel_on_error_reenables_bed_mesh_without_moving(self):
         gcode = self._macro_gcode("OPTIMIZED_CANCEL_PRINT_ON_ERROR")
         self.assertIn("G31", gcode)

@@ -5,7 +5,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Iterable
 
-from . import klipper_cfg, patches, safety
+from . import external_files, klipper_cfg, patches, safety
 from .ensure_lines import has_active_line
 from .manifest import active_patch_entries, select_patch_variant
 from .errors import PathSafetyError, PreflightTargetsError
@@ -13,6 +13,7 @@ from .mirror import validate_managed_tree_source
 from .path_safety import (
     ensure_external_path_has_no_symlink_components,
     ensure_install_paths_safe,
+    ensure_path_under_root_has_no_symlink_components,
     ensure_runtime_path_has_no_symlink_components,
 )
 from .models import (
@@ -45,6 +46,7 @@ def run_install_preflight(
         reporter=reporter,
         disk_usage=disk_usage,
         urlopen=urlopen,
+        prior_state=prior_state,
     )
     run_install_config_preflight(
         paths=paths,
@@ -63,12 +65,18 @@ def run_install_environment_preflight(
     reporter=None,
     disk_usage: DiskUsageFn = shutil.disk_usage,
     urlopen: UrlOpenFn = urllib.request.urlopen,
+    prior_state: InstalledState | None = None,
 ) -> None:
     ensure_install_paths_safe(paths=paths, manifest=manifest)
     printer_state = safety.ensure_printer_idle(paths.moonraker_url, urlopen=urlopen)
     validate_managed_tree_source(
         paths.installer_root / manifest.managed_tree.source,
         required_files=manifest.managed_tree.required_files,
+    )
+    external_files.validate_install(
+        paths=paths,
+        specs=manifest.install.external_files,
+        prior_state=prior_state,
     )
     required_bytes = estimate_install_free_bytes(paths=paths, manifest=manifest)
     free_bytes = safety.ensure_sufficient_free_space(
@@ -181,6 +189,13 @@ def run_uninstall_preflight(
         )
         if target.is_symlink() or not target.is_file():
             raise PathSafetyError(f"Managed source is not a regular file: {target}")
+    for record in state.external_files:
+        ensure_path_under_root_has_no_symlink_components(
+            root=paths.managed_klipper_root,
+            target=paths.managed_klipper_root / record.destination,
+            root_name="Klipper root",
+        )
+    external_files.validate_uninstall(paths=paths, state=state)
     report = build_uninstall_preflight_report(
         paths=paths,
         state=state,
@@ -261,6 +276,10 @@ def estimate_install_free_bytes(*, paths: RuntimePaths, manifest: Manifest) -> i
     managed_tree_write = safety.total_tree_size(
         paths.installer_root / manifest.managed_tree.source
     )
+    external_file_write = sum(
+        safety.file_size(paths.installer_root / spec.source)
+        for spec in manifest.install.external_files
+    )
     config_writes = sum(
         safety.file_size(paths.printer_data_root / spec.file)
         for spec in manifest.install.ensure_lines
@@ -274,9 +293,16 @@ def estimate_install_free_bytes(*, paths: RuntimePaths, manifest: Manifest) -> i
         for patch in manifest.install.source_patches
     )
     state_write = 8 * 1024 + sum(safety.file_size(path) for path in external_paths)
-    write_reserve = managed_tree_write + config_writes + patch_writes + source_writes + state_write
+    write_reserve = (
+        managed_tree_write
+        + external_file_write
+        + config_writes
+        + patch_writes
+        + source_writes
+        + state_write
+    )
     # Same-directory atomic replacement needs room for the new file and rollback copy.
-    write_reserve += managed_tree_write + config_writes + patch_writes + source_writes + state_write
+    write_reserve += write_reserve
     return safety.required_free_bytes(
         backup_reserve=backup_reserve,
         rollback_reserve=rollback_reserve,
@@ -310,7 +336,11 @@ def estimate_uninstall_free_bytes(
         max(safety.file_size(path), len(entry.original_bytes))
         for path, entry in zip(source_paths, state.source_patches)
     )
-    write_reserve += source_writes
+    external_writes = sum(
+        safety.file_size(paths.managed_klipper_root / record.destination)
+        for record in state.external_files
+    )
+    write_reserve += source_writes + external_writes
     write_reserve += write_reserve
     return safety.required_free_bytes(
         backup_reserve=backup_reserve,
@@ -327,6 +357,10 @@ def _install_rollup_paths(*, paths: RuntimePaths, manifest: Manifest) -> set[Pat
     rollup.update(
         paths.printer_data_root / patch.file
         for patch in (*manifest.patches.set_options, *manifest.patches.delete_sections)
+    )
+    rollup.update(
+        paths.managed_klipper_root / spec.destination
+        for spec in manifest.install.external_files
     )
     managed_tree_root = paths.printer_data_root / manifest.managed_tree.destination
     if managed_tree_root.exists():
@@ -347,7 +381,14 @@ def _uninstall_rollup_paths(
         paths.printer_data_root / state_file_path,
     }
     rollup.update(paths.printer_data_root / entry.file for entry in state.patch_ledger)
-    rollup.update(paths.managed_klipper_root / entry.destination for entry in state.source_patches)
+    rollup.update(
+        paths.managed_klipper_root / entry.destination
+        for entry in state.source_patches
+    )
+    rollup.update(
+        paths.managed_klipper_root / record.destination
+        for record in state.external_files
+    )
     rollup.add(paths.restart_marker_path)
     managed_tree_root = paths.printer_data_root / state.managed_tree.root
     if managed_tree_root.exists():

@@ -184,6 +184,47 @@ class ProcessRestartTests(unittest.TestCase):
         self.assertTrue(restart_pending(self.paths, allowed_entries=self.allowed, urlopen=recovered, sleep=lambda _: None, attempts=1))
         self.assertFalse(self.paths.restart_marker_path.exists())
 
+    def test_pending_absence_is_verified_before_restart(self):
+        destination = "klippy/extras/tltg_pa_calibration.py"
+        target = self.paths.managed_klipper_root / destination
+        self.assertFalse(target.exists())
+        write_restart_marker(
+            self.paths,
+            (("tltg_pa_calibration_extra", destination, None),),
+            operation="uninstall",
+            process_id=100,
+        )
+        allowed = {"tltg_pa_calibration_extra": destination}
+
+        def already_restarted(request, timeout=0):
+            return _Response(
+                {"result": {"process_id": 101, "state": "ready"}}
+            )
+
+        self.assertTrue(
+            restart_pending(
+                self.paths,
+                allowed_entries=allowed,
+                urlopen=already_restarted,
+                sleep=lambda _: None,
+            )
+        )
+        self.assertFalse(self.paths.restart_marker_path.exists())
+
+        write_restart_marker(
+            self.paths,
+            (("tltg_pa_calibration_extra", destination, None),),
+            operation="uninstall",
+            process_id=100,
+        )
+        target.write_bytes(b"unexpected")
+        with self.assertRaises(ProcessRestartError):
+            restart_pending(
+                self.paths,
+                allowed_entries=allowed,
+                urlopen=lambda *_args, **_kwargs: self.fail("must not restart"),
+            )
+
     def test_pending_target_drift_or_symlink_blocks_restart_and_retains_marker(self):
         self._marker()
         self.target.write_bytes(b"drift")

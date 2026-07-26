@@ -244,7 +244,16 @@ def run_auto_update_check(
             safety.ensure_printer_idle(paths.moonraker_url, urlopen=urlopen)
             restart_pending(
                 paths,
-                allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+                allowed_entries={
+                    **{
+                        patch.id: patch.destination
+                        for patch in manifest.install.source_patches
+                    },
+                    **{
+                        spec.id: spec.destination
+                        for spec in manifest.install.external_files
+                    },
+                },
                 urlopen=urlopen,
             )
             reporter.line("Klipper service process restarted and verified.")

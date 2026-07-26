@@ -42,6 +42,7 @@
   - `openspec/contracts/gcode-paths/generated/start-print.md`
 - External QIDI platform behavior:
   - `openspec/observations/qidi-platform.md`
+  - `openspec/observations/qidi-load-cell.md` for Max 4 load-cell, direct-read, extruder trapq, filament, and nozzle evidence
 - QIDI Box topology, commands, state, hardware, metadata, evidence limits, and unresolved behavior:
   - `openspec/observations/qidi-box/topology-and-control.md`
   - `openspec/observations/qidi-box/state-and-commands.md`
