@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.07.26.1"
+  version: "26.07.26.2"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -30,6 +30,7 @@ package:
     - "26.07.13.1"
     - "26.07.13.2"
     - "26.07.26.1"
+    - "26.07.26.2"
 
 firmware:
   supported:
@@ -439,3 +440,29 @@ system_optimizations:
   moonraker_metadata_3mf:
     file: /home/qidi/moonraker/moonraker/components/file_manager/metadata.py
     restart_service: moonraker.service
+  rockchip_root_sync:
+    id: rockchip_root_sync
+    unit: rockchip.service
+    unit_file: /lib/systemd/system/rockchip.service
+    script: /etc/init.d/rockchip.sh
+    dropin: /etc/systemd/system/rockchip.service.d/override.conf
+    dropin_content: |
+      [Service]
+      ExecStart=
+      ExecStart=/bin/true
+    mount_target: /
+    vendor_exec_start: /etc/init.d/rockchip.sh
+    desired_exec_start: /bin/true
+    defective_unit_markers:
+      - ExecStart=/etc/init.d/rockchip.sh
+    defective_script_markers:
+      - "#!/bin/bash -e"
+      - rk3308
+      - 'CHIPNAME="rk3208"'
+      - mount -o remount,sync /
+      - install_packages
+      - touch /usr/local/first_boot_flag
+    ordered_script_markers:
+      - mount -o remount,sync /
+      - install_packages
+      - touch /usr/local/first_boot_flag
