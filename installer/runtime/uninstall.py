@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import urllib.request
 
 from . import klipper_cfg, messages, patches
@@ -55,6 +56,7 @@ def run_uninstall(
     disk_usage=shutil.disk_usage,
     environ: dict[str, str] | None = None,
     system_options: SystemOptimizationCliOptions | None = None,
+    run=subprocess.run,
 ) -> UninstallResult:
     env = {} if environ is None else environ
     system_options = system_options or SystemOptimizationCliOptions()
@@ -261,6 +263,7 @@ def run_uninstall(
         urlopen=urlopen,
         restore_system=restore_system,
         environ=env,
+        run=run,
     )
 
 
@@ -309,6 +312,7 @@ def _execute_uninstall(
     urlopen,
     restore_system: bool,
     environ: dict[str, str],
+    run=subprocess.run,
 ) -> UninstallResult:
     managed_tree_root = paths.printer_data_root / state.managed_tree.root
     include_line_path = paths.printer_data_root / include_line.file
@@ -402,10 +406,12 @@ def _execute_uninstall(
         if restore_system:
             restore_system_optimizations(
                 paths=paths,
+                manifest=manifest,
                 state=state,
                 reporter=reporter,
                 input_stream=input_stream,
                 environ=environ,
+                run=run,
             )
 
         if state_path.exists():

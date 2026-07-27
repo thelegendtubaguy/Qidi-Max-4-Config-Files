@@ -27,6 +27,7 @@ from .ensure_lines import ensure_line_after
 from .compatibility import CompatibilityValidationError, load_supported_upgrade_sources
 from .errors import OperationCancelled, PreviousPackageValidationError, UnsupportedFirmwareError
 from .firmware import detect_firmware_version
+from .host_reboot import arm_auto_update_reboot_followup
 from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
 from .legacy_manual_install import maybe_reset_legacy_manual_install
 from .fs_atomic import atomic_write_text
@@ -260,6 +261,7 @@ def run_install(
         environ=env,
         system_options=system_options,
         source_results=source_results,
+        run=run,
     )
 
 
@@ -324,6 +326,7 @@ def _execute_install(
     environ: dict[str, str],
     system_options: SystemOptimizationCliOptions,
     source_results=(),
+    run=subprocess.run,
 ) -> InstallResult:
     state_path = paths.printer_data_root / manifest.state_file
     journal = RollbackJournal(
@@ -500,6 +503,7 @@ def _execute_install(
             cli_options=system_options,
             environ=environ,
             auto_update_child=environ.get(LOCK_HELD_ENV) == "1",
+            run=run,
         )
     except Exception as exc:
         reporter.debug(
@@ -564,6 +568,13 @@ def _execute_install(
             [item for item in result.patch_results if item.classification == patches.USER_MODIFIED]
         ),
     )
+    if environ.get(LOCK_HELD_ENV) == "1":
+        arm_auto_update_reboot_followup(
+            paths,
+            reporter=reporter,
+            environ=environ,
+            run=run,
+        )
     return result
 
 

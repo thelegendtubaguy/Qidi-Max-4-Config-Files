@@ -21,6 +21,7 @@ skip_system_arg=""
 disable_ai_arg=""
 keep_ai_arg=""
 keep_system_arg=""
+reboot_host_arg=""
 
 package_manifest_path() {
   if [ -f installer/package.yaml ]; then
@@ -68,10 +69,11 @@ Options:
   --dry-run                     Preview install or uninstall actions without writing changes.
   --demo-tui                    Render a demo of the install/uninstall TUI without writing changes.
   --yes                         Run non-interactively using default yes-mode choices.
-  --skip-system-optimizations   Skip DNS, APT, qidiclient GIF, VPN, Bluetooth, and AI service changes.
+  --skip-system-optimizations   Skip DNS, APT, qidiclient GIF, Rockchip root-mount, VPN, Bluetooth, and AI service changes.
   --disable-ai-detection        Disable the QIDI AI detection backend service when system optimizations run.
   --keep-ai-detection           Keep the QIDI AI detection backend service enabled when system optimizations run.
   --keep-system-optimizations   During uninstall, leave installer-managed system settings in place.
+  --reboot-host                 Authorize a pending managed host OS reboot after success.
 
 Common examples:
   ./install.sh --plain
@@ -131,6 +133,9 @@ while [ "$#" -gt 0 ]; do
     --keep-system-optimizations)
       keep_system_arg="--keep-system-optimizations"
       ;;
+    --reboot-host)
+      reboot_host_arg="--reboot-host"
+      ;;
     *)
       echo "Unsupported argument: $1" >&2
       exit 1
@@ -166,5 +171,8 @@ if [ -n "$keep_ai_arg" ]; then
 fi
 if [ -n "$keep_system_arg" ]; then
   set -- "$@" "$keep_system_arg"
+fi
+if [ -n "$reboot_host_arg" ]; then
+  set -- "$@" "$reboot_host_arg"
 fi
 exec "$@"

@@ -501,5 +501,10 @@ def _remove_state(paths: RuntimePaths) -> None:
         return
 
 
+def current_auto_update_checksum(paths: RuntimePaths) -> str | None:
+    value = _read_state(paths).get("latest_checksum")
+    return value if isinstance(value, str) and len(value) == 64 else None
+
+
 def state_path(paths: RuntimePaths) -> Path:
     return paths.printer_data_root / STATE_FILE
