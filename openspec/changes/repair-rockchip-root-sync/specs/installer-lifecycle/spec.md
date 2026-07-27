@@ -29,6 +29,7 @@ The installer SHALL persist, schedule, and verify host OS reboot requests withou
 #### Scenario: Reboot occurs after process completion
 - **WHEN** an idle host reboot is authorized
 - **THEN** authenticated sudo creates a delayed transient systemd reboot job
+- **AND** the prompt and successful scheduling status state that shutdown begins after the approximately 10-second delay
 - **AND** final status is emitted and the installer lock can be released before shutdown begins
 - **AND** scheduler failure is reported without changing successful config or system-operation state
 - **AND** the pending marker remains available for retry

@@ -95,7 +95,7 @@ A later invocation compares the marker boot ID with the current boot ID. A chang
 
 ### Schedule host reboot only at a terminal boundary
 
-A new host-reboot helper will perform one final Moonraker idle-state query immediately before scheduling. Printing, paused, or unknown state leaves the marker pending and performs no reboot. After emitting the final operator status, the helper will use authenticated sudo to schedule `systemctl reboot` through a delayed transient systemd unit, allowing the installer process to return and release its lock before shutdown begins.
+A new host-reboot helper will perform one final Moonraker idle-state query immediately before scheduling. Printing, paused, or unknown state leaves the marker pending and performs no reboot. The prompt and successful scheduling status state that shutdown begins after the approximately 10-second delay. The helper will use authenticated sudo to schedule `systemctl reboot` through a delayed transient systemd unit, allowing the installer process to return and release its lock before shutdown begins.
 
 Interactive install will offer the reboot when a marker is created or remains pending. `install.sh --reboot-host` authorizes scheduling of a valid pending managed reboot after a successful direct install or uninstall; it is not an arbitrary reboot command. Direct `--yes` without that flag leaves the marker pending rather than introducing an unexpected reboot. Accepted uninstall restoration clears a pending Rockchip repair marker because the repaired state is no longer desired; operator-drift preservation and `--keep-system-optimizations` retain it. Dry-run reports the reboot decision without creating a marker or invoking systemd.
 
