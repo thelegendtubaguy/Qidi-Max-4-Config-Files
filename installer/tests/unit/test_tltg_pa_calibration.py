@@ -940,6 +940,54 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         self.assertEqual(sensor.mcu.read_command.sends, [])
         self.assertEqual(printer.shutdowns, [])
 
+    def test_origin_capture_lease_spans_scheduling_and_releases_idempotently(self):
+        sensor = _FakeSensor(origin_values=[-3, -2])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+
+        adapter.validate_capture(0.1, 20)
+        adapter.acquire()
+        self.assertTrue(adapter.active)
+        self.assertIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+        capture = adapter.capture_owned(_FakeReactor(), 0.1, 20)
+        self.assertTrue(adapter.active)
+        self.assertEqual([item.counts for item in capture.samples], [-3, -2])
+        adapter.release()
+        adapter.release()
+
+        self.assertFalse(adapter.active)
+        self.assertNotIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+        self.assertEqual(
+            sensor.query_cs1237_home_state_cmd.sends,
+            [[sensor.oid], [sensor.oid]],
+        )
+        self.assertEqual(printer.shutdowns, [])
+
+    def test_origin_owned_capture_requires_complete_lease(self):
+        sensor = _FakeSensor(origin_values=[1, 2])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        with self.assertRaisesRegex(pa.CalibrationError, "SENSOR_OWNERSHIP_UNSAFE"):
+            adapter.capture_owned(_FakeReactor(), 0.1, 20)
+        self.assertEqual(printer.shutdowns, [])
+
+    def test_origin_lease_release_shuts_down_on_ownership_loss(self):
+        sensor = _FakeSensor(origin_values=[1])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        adapter.acquire()
+        pa._ACTIVE_SENSOR_IDS.discard(id(sensor))
+        with self.assertRaisesRegex(pa.CalibrationError, "SENSOR_OWNERSHIP_UNSAFE"):
+            adapter.release()
+        self.assertFalse(adapter.active)
+        self.assertEqual(len(printer.shutdowns), 1)
+
     def test_origin_capture_shuts_down_on_post_capture_sensor_state_change(self):
         sensor = _FakeSensor(origin_values=[1, 2])
         printer = _LookupPrinter(

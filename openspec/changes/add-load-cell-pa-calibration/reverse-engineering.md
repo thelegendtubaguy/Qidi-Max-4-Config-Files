@@ -8,7 +8,7 @@
 
 Controlled `0.4 mm` nozzle testing with QIDI Box-fed PLA at `215 °C` established stationary direct-trapq extrusion, load-cell response under flow, PA/smooth-time restoration, ordinary E-move continuity, source preservation, chute clearing after at most two pulses, final cleanup, and successful stock `G28` after direct extrusion. Three of nine `500 Hz` under-load captures missed responses, isolated invalid excursions persisted, and repeated K responses were not repeatable enough to select a candidate. A single `250 Hz` under-load capture returned all `363/363` responses but is insufficient to establish a production rate.
 
-Sanitized idle cadence traces are in `evidence/direct-read-cadence.json`; the controlled direct-read summary is in `evidence/controlled-0.4-pla-215.json`; four GPIO-passive origin-cache traces under stationary extrusion are in `evidence/origin-cache-under-force.json`. Absolute host timestamps and temporary harness paths are not retained. Host call or response time is not treated as proven ADC conversion time, and exploratory outlier heuristics are not production classifiers.
+Sanitized idle cadence traces are in `evidence/direct-read-cadence.json`; the controlled direct-read summary is in `evidence/controlled-0.4-pla-215.json`; four GPIO-passive origin-cache traces under stationary extrusion are in `evidence/origin-cache-under-force.json`; three ten-pulse K `0.020` qualification campaigns are summarized in `evidence/origin-cache-repeatability.json`. Absolute host timestamps and temporary harness paths are not retained. Host call or response time is not treated as proven ADC conversion time, and exploratory outlier heuristics are not production classifiers.
 
 ## Installed Max 4 contract
 
@@ -101,7 +101,7 @@ The vendor binaries are not committed. Hashes identify the exact analyzed inputs
 | `cs1237.so` | `7beb56413a902356d0aee2d0580e820342083b3b7f7194d1f5d7217f4b7ff4b5` | unstripped AArch64 ELF64, DWARF, BuildID `495a978bcac6c976efcf12050bc06d7743314d7c` |
 | `air.so` | `8487fe77b0b6b621e168d9c0df54997b05bdd6f37e155979c0dab9186dedd24c` | unstripped AArch64 ELF64, DWARF, BuildID `4d8e76ef51afc90e8a0a39a1be31a1c1fd19705c` |
 
-DWARF records `cs1237.so` as compiled from `/home/qidi/studio/cs1237/cs1237.c` and `air.so` from `/home/mks/studio/so/air/air.c`. Those are Cython-generated compile paths, not available vendor source trees.
+DWARF records `cs1237.so` and `air.so` under separate vendor build roots. The embedded paths are Cython-generated compile metadata, not available vendor source trees.
 
 The extracted `QD_MAX4_SOC.deb` copies of `cs1237.so` and `air.so` were byte-identical to the separately acquired modules.
 
@@ -304,7 +304,11 @@ The four runs returned 93, 93, 87, and 87 synchronous values; unique counts were
 
 `CLEAR_FLUSH` ran after one or two measured pulses. A following ordinary relative E move advanced physical nominal E by exactly `1 mm` after logical-coordinate rebasing. Final `CLEAR_OOZE`, `CLEAR_FLUSH`, heater-off, full stock `G28`, absolute `Z=200`, and trash parking completed; Klipper remained ready and the filament source remained loaded. The temporary command and config were removed and Klipper was process-restarted. These results establish post-capture stock homing, not Z tilt or bed-mesh validation.
 
-The staged `QidiOriginAdapter` now owns bounded captures with a process-local token, limits them to 50 Hz and 250 calls, records monotonic and estimated print-time call intervals, validates stock homing state before and after capture, releases ownership on every path, and invokes shutdown if ownership or post-capture homing state cannot be verified. Production use still requires a conservative conversion-age/alignment model, repeatable K-profile evidence, force-safe invalid-value classification, and the remaining stock-probe matrix without configuration reads.
+Three follow-up campaigns each ran five K `0.020` cycles at `10 mm/s²` and five at `20 mm/s²`. The first used no additional thermal soak and a `0.15 s` low-flow lead. The second used a `300 s` soak and the same lead. The third used a `180 s` soak and extended each low-flow lead to `0.5 s`. Every run retained 39.94–39.99 Hz mean call-start cadence, complete phase coverage, and 82–113 returned values; the maximum synchronous call duration was `54.820 ms`, and the maximum local call-start gap was `66.016 ms`.
+
+Identical excitation was not repeatable enough for a K sweep. Idle-to-high response relative span ranged from `12.3%` to `71.5%` across acceleration/campaign groups. Low-to-high analyzer amplitude ranged from `13` to `6363` counts, and three of 30 cycles inverted analyzer polarity because the low-flow baseline approached the high-flow force level. Thermal soaking and the longer lead did not remove amplitude, polarity, tracking, recovery, or signed-area instability. The K sweep stopped before testing a new K, so no physical candidate was produced.
+
+The staged `QidiOriginAdapter` now separates validation, lease acquisition, owned capture, and idempotent release. A temporary source-gated coordinator validated the maximum 50 Hz/250-call budget, acquired process-local ownership before PA mutation or trapq queueing, retained it through bounded reads and owned motion completion, restored PA, smooth time, and logical E, then released and verified stock homing state. Ownership loss or unverifiable post-release state invokes shutdown requiring `FIRMWARE_RESTART`. Thirty qualification pulses exercised that temporary transaction without loss or post-state failure; final cleanup and stock `G28` succeeded after every campaign. The installed public path does not invoke this coordinator while calibration remains disabled. Production use still requires a conservative conversion-age/alignment model, a repeatable pressure-conditioning schedule, force-safe invalid-value classification, and the remaining stock-probe matrix without configuration reads.
 
 ## Installed pressure-advance and trapq contract
 
@@ -412,9 +416,9 @@ No Reddit source code was available at inspection time. No implementation was co
 
 ## Installer and runtime state
 
-The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `79b4c849b169a059148b9c2171c21692ef6dbd3b9f90b52a14c351335ebb4994` for package `26.07.26.12`. Package `26.07.26.4` was used for the aborted two-acceleration direct-read follow-up; packages through `26.07.26.8` added response, ownership, shutdown, and hard-disable guards. Packages `26.07.26.9` through `26.07.26.12` retain source-gated origin-cache characterization, make the GPIO-passive origin adapter the staged preflight path, and keep every developer sensor command disabled. Packages `26.07.26.11` and `26.07.26.12` add bounded origin capture ownership, host/print-time call intervals, pre/post homing-state validation, shutdown on ownership or post-state uncertainty, and a path-neutral shutdown message.
+The extra source is `installer/klipper/extras/tltg_pa_calibration.py`. `installer/package.yaml` pins SHA-256 `cbbaa9a114b88e5c3e169a088060b1deeccfd20198e899f43026ef791720af2f` for package `26.07.26.14`. Package `26.07.26.4` was used for the aborted two-acceleration direct-read follow-up; packages through `26.07.26.8` added response, ownership, shutdown, and hard-disable guards. Packages `26.07.26.9` through `26.07.26.14` retain source-gated origin-cache characterization, make the GPIO-passive origin adapter the staged preflight path, and keep every developer sensor command disabled. Packages `26.07.26.11` through `26.07.26.14` add bounded origin capture ownership, host/print-time call intervals, a lease spanning motion scheduling and restoration, idempotent release, post-release homing-state validation, and shutdown on ownership or post-state uncertainty.
 
-Packages `26.07.26.3` through `26.07.26.12` were installed on the controlled Max 4 from validated development bundles and loaded through verified Klipper service-process restarts. Final `26.07.26.12` state reported the expected module hash, Klipper `ready`, heater target zero, loaded QIDI Box `slot4`, public calibration disabled, and temporary, direct, configuration, and origin developer commands absent.
+Packages `26.07.26.3` through `26.07.26.14` were installed on the controlled Max 4 from validated development bundles and loaded through verified Klipper service-process restarts. Final `26.07.26.14` state reported the expected module hash, Klipper `ready`, heater target zero, loaded QIDI Box `slot4`, public calibration disabled, and temporary, direct, configuration, and origin developer commands absent.
 
 The managed destination supports collision detection, drift rejection, atomic replacement, rollback, state-ledger recording, upgrade, uninstall, and optional preimage restoration. Recovery-sentinel validation checks expected existence, SHA-256, and mode for rollback-tracked files outside `config/`.
 
@@ -424,8 +428,8 @@ A Moonraker `/printer/restart` reloads configuration but does not reload an alre
 
 The PA-focused implementation passed:
 
-- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 70 tests;
-- `python3 scripts/run_installer_core_tests.py` — 260 tests;
+- `python3 -m unittest installer.tests.unit.test_tltg_pa_calibration -v` — 73 tests;
+- `python3 scripts/run_installer_core_tests.py` — 263 tests;
 - `python3 scripts/format_klipper_configs.py` — no formatting changes;
 - `python3 scripts/check_installer_known_versions.py` — compatibility metadata valid;
 - `openspec validate add-load-cell-pa-calibration --strict` — valid;
@@ -484,7 +488,7 @@ Earlier merged validation also covered optimized slicer macros and G-code path c
 | Analysis failure restores state | Injected analysis failure restores before emitting failure. | Concrete backend remains. |
 | Klipper shutdown interrupts calibration | Motion-unsafe cleanup omits clear motion and records manual cleanup. | Shutdown event wiring remains. |
 | Fresh installation deploys the capability | Installer external-file and managed-tree integration tests pass. | No current deployment is requested. |
-| Python extra upgrade reloads module code | Packages through `26.07.26.12` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
+| Python extra upgrade reloads module code | Packages through `26.07.26.14` installed and loaded through verified Klipper service-process restarts. | Auto-update activation remains to be observed. |
 | Destination collision fails safely | Installer collision and drift tests pass before writes. | None. |
 | Failed installation rolls back the extra | Integration tests cover external-file rollback and recovery state. | None. |
 | Uninstall removes only the managed extra | Exact-hash removal and preimage restoration tests pass. | None. |

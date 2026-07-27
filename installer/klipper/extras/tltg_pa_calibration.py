@@ -1552,14 +1552,45 @@ class QidiOriginAdapter:
             raise CalibrationError("INVALID_ORIGIN_RESPONSE")
         return value
 
-    def capture(self, reactor, duration, rate):
+    def validate_capture(self, duration, rate):
         request_count = _bounded_capture_request_count(duration, rate)
         if rate > 50 or request_count > 250:
             raise CalibrationError("CAPTURE_RESOURCE_LIMIT")
+        return request_count
+
+    def acquire(self):
         sensor_id = id(self.sensor)
         if self.active or sensor_id in _ACTIVE_SENSOR_IDS:
             raise CalibrationError("SENSOR_BUSY")
         self.validate_configuration()
+        self.active = True
+        _ACTIVE_SENSOR_IDS.add(sensor_id)
+
+    def release(self):
+        sensor_id = id(self.sensor)
+        if not self.active and sensor_id not in _ACTIVE_SENSOR_IDS:
+            return
+        ownership_unsafe = (
+            not self.active or sensor_id not in _ACTIVE_SENSOR_IDS
+        )
+        self.active = False
+        _ACTIVE_SENSOR_IDS.discard(sensor_id)
+        if ownership_unsafe:
+            _invoke_stock_sensor_shutdown(self.printer)
+            raise CalibrationError("SENSOR_OWNERSHIP_UNSAFE")
+        try:
+            self.validate_configuration()
+        except Exception as exc:
+            _invoke_stock_sensor_shutdown(self.printer)
+            raise CalibrationError("STOCK_SENSOR_STATE_CHANGED") from exc
+
+    def capture_owned(self, reactor, duration, rate):
+        request_count = self.validate_capture(duration, rate)
+        sensor_id = id(self.sensor)
+        if not self.active or sensor_id not in _ACTIVE_SENSOR_IDS:
+            if self.active or sensor_id in _ACTIVE_SENSOR_IDS:
+                _invoke_stock_sensor_shutdown(self.printer)
+            raise CalibrationError("SENSOR_OWNERSHIP_UNSAFE")
 
         monotonic = getattr(reactor, "monotonic", None)
         pause = getattr(reactor, "pause", None)
@@ -1569,11 +1600,6 @@ class QidiOriginAdapter:
         if not _finite_number(start):
             raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
         samples = []
-        primary_error = None
-        ownership_unsafe = False
-        post_state_unsafe = False
-        self.active = True
-        _ACTIVE_SENSOR_IDS.add(sensor_id)
         try:
             for index in range(request_count):
                 call_start = monotonic()
@@ -1613,36 +1639,35 @@ class QidiOriginAdapter:
                 )
                 if index + 1 < request_count:
                     pause(start + float(index + 1) / rate)
+        except CalibrationError:
+            raise
         except Exception as exc:
-            primary_error = exc
-        finally:
-            ownership_unsafe = (
-                not self.active or sensor_id not in _ACTIVE_SENSOR_IDS
-            )
-            self.active = False
-            _ACTIVE_SENSOR_IDS.discard(sensor_id)
-            if not ownership_unsafe:
-                try:
-                    self.validate_configuration()
-                except Exception:
-                    post_state_unsafe = True
-            if ownership_unsafe or post_state_unsafe:
-                _invoke_stock_sensor_shutdown(self.printer)
-
-        if ownership_unsafe:
-            raise CalibrationError("SENSOR_OWNERSHIP_UNSAFE") from primary_error
-        if post_state_unsafe:
-            raise CalibrationError("STOCK_SENSOR_STATE_CHANGED") from primary_error
-        if primary_error is not None:
-            if isinstance(primary_error, CalibrationError):
-                raise primary_error
-            raise CalibrationError("ORIGIN_CAPTURE_FAILED") from primary_error
+            raise CalibrationError("ORIGIN_CAPTURE_FAILED") from exc
         return OriginCapture(
             samples=tuple(samples),
             requested_responses=request_count,
             requested_rate=rate,
             duration=duration,
         )
+
+    def capture(self, reactor, duration, rate):
+        self.validate_capture(duration, rate)
+        primary_error = None
+        result = None
+        self.acquire()
+        try:
+            result = self.capture_owned(reactor, duration, rate)
+        except Exception as exc:
+            primary_error = exc
+        try:
+            self.release()
+        except CalibrationError as exc:
+            raise exc from primary_error
+        if primary_error is not None:
+            if isinstance(primary_error, CalibrationError):
+                raise primary_error
+            raise CalibrationError("ORIGIN_CAPTURE_FAILED") from primary_error
+        return result
 
 
 class QidiCS1237Adapter:

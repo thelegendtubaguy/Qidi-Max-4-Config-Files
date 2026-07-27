@@ -77,7 +77,8 @@ The system SHALL access the stock `probe_air` CS1237 acquisition path through a 
 #### Scenario: GPIO-passive origin cache remains partially validated
 - **WHEN** `read_origin_data()` returns changing cached values without driving sensor pins
 - **THEN** the adapter may retain that path for bounded source-gated characterization at no more than 50 Hz and 250 calls
-- **AND** it records host and estimated print-time call intervals, validates homing ownership before and after capture, and releases exclusive process-local ownership on every path
+- **AND** it validates capture bounds and acquires exclusive process-local ownership before pressure-advance mutation or trapq queueing
+- **AND** it records host and estimated print-time call intervals, retains ownership through capture, owned-motion completion, and temporary-state restoration, then verifies homing state after release
 - **AND** an unverifiable post-capture homing state or ownership loss forces shutdown before subsequent probing
 - **AND** public capture remains disabled until cached-conversion age, deterministic schedule alignment, invalid-value classification, and candidate repeatability are hardware-validated
 
@@ -175,8 +176,14 @@ The system SHALL collect bounded CS1237 samples through a validated non-homing a
 - **AND** each analyzed sample is assigned a time relative to the queued transition schedule using a validated bound on cached-conversion age rather than assuming response receive time equals ADC conversion time
 
 #### Scenario: Conversion freshness is inconclusive
-- **WHEN** duplicate responses, cached-value behavior, or firmware timing prevents the system from bounding ADC conversion age and alignment error
+- **WHEN** duplicate responses, cached-value behavior, firmware timing, or physical force-response delay prevents the system from bounding ADC conversion age and alignment error
 - **THEN** the system marks the measured cycle inconclusive
+- **AND** the system reports no PA candidate
+
+#### Scenario: Identical excitation is not repeatable
+- **WHEN** repeated cycles at one K value vary in low-flow baseline, response amplitude, polarity, or normalized transition metrics beyond validated limits
+- **THEN** the system stops before a K sweep
+- **AND** thermal soaking or longer lead segments are not treated as sufficient unless the recorded cycles pass the same repeatability gates
 - **AND** the system reports no PA candidate
 
 #### Scenario: Raw processing respects host limits

@@ -39,7 +39,7 @@ class BumpInstallerVersionTests(unittest.TestCase):
             self.assertIn('    - "99.01.02.3"', package_text)
             upgrade_sources_text = (root / UPGRADE_SOURCES_PATH).read_text(encoding="utf-8")
             self.assertIn(
-                '  "99.01.02.3":\n    inherits: "26.07.26.12"',
+                '  "99.01.02.3":\n    inherits: "26.07.26.14"',
                 upgrade_sources_text,
             )
             globals_text = (root / GLOBALS_PATH).read_text(encoding="utf-8")
