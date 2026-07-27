@@ -105,6 +105,7 @@ class HostRebootTests(unittest.TestCase):
     def test_idle_automatic_request_schedules_delayed_systemd_reboot(self):
         self._write_marker()
         calls = []
+        output = io.StringIO()
 
         def run(command, **kwargs):
             calls.append(command)
@@ -112,7 +113,7 @@ class HostRebootTests(unittest.TestCase):
 
         scheduled = maybe_schedule_host_reboot(
             self.paths,
-            reporter=PlainReporter(io.StringIO()),
+            reporter=PlainReporter(output),
             input_stream=None,
             environ={},
             automatic=True,
@@ -127,6 +128,24 @@ class HostRebootTests(unittest.TestCase):
         self.assertIn("complete-host-reboot", calls[1])
         self.assertNotIn("reboot", calls[1])
         self.assertTrue(self.paths.host_reboot_marker_path.exists())
+        self.assertIn("Host OS reboot scheduled. Shutdown will begin in about 10 seconds.", output.getvalue())
+
+    def test_interactive_prompt_explains_delayed_reboot(self):
+        self._write_marker()
+        output = io.StringIO()
+
+        scheduled = maybe_schedule_host_reboot(
+            self.paths,
+            reporter=PlainReporter(output),
+            input_stream=io.StringIO("Y\n"),
+            environ={},
+            urlopen=moonraker_urlopen("standby"),
+            run=lambda command, **kwargs: subprocess.CompletedProcess(command, 0),
+        )
+
+        self.assertTrue(scheduled)
+        self.assertIn("Schedule a printer host OS reboot", output.getvalue())
+        self.assertIn("shutdown begins about 10 seconds after scheduling", output.getvalue())
 
     def test_delayed_reboot_rechecks_idle_state_before_systemctl_reboot(self):
         self._write_marker()

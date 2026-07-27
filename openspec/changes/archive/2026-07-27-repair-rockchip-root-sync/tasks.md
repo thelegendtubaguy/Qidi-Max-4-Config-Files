@@ -43,4 +43,4 @@
 - [x] 6.1 Run `python3 scripts/run_installer_core_tests.py`.
 - [x] 6.2 Run `python3 scripts/build_installer_bundle.py --output-dir dist --channel dev --build-id local --smoke-test`.
 - [x] 6.3 Run `openspec validate --all --strict` and resolve every warning or error.
-- [ ] 6.4 On an idle test printer, validate direct and auto-update marker handling, delayed reboot, post-boot cleanup, async mount persistence, and qidiclient, Klipper, and Moonraker health.
+- [x] 6.4 On an idle test printer, validate direct and auto-update marker handling, delayed reboot, post-boot cleanup, async mount persistence, and qidiclient, Klipper, and Moonraker health.
