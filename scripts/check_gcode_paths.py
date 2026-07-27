@@ -162,11 +162,15 @@ def expand_macro_files(patterns: list[str], contract_path: Path) -> tuple[Path, 
     return tuple(files)
 
 
+def strip_semicolon_comments(text: str) -> str:
+    return "\n".join(line.split(";", 1)[0] for line in text.splitlines())
+
+
 def validate_entrypoint(contract_path: Path, entrypoint: dict[str, Any]) -> None:
     path = REPO_ROOT / require_str(entrypoint, "path", contract_path)
     if not path.exists():
         raise ContractError(f"{relative(contract_path)}: missing entrypoint file {relative(path)}")
-    text = path.read_text(encoding="utf-8")
+    text = strip_semicolon_comments(path.read_text(encoding="utf-8"))
     label = f"{relative(contract_path)} entrypoint {entrypoint.get('name', relative(path))}"
     assert_order(label, text, entrypoint.get("must_include_order", []))
     assert_absent(label, text, entrypoint.get("must_not_include", []))

@@ -101,6 +101,7 @@ OrcaSlicer and QIDI Studio start/end packs SHALL remain functionally aligned whi
 - **WHEN** front-bed room exists relative to first-layer bounds
 - **THEN** the prime line is placed in front of those bounds
 - **AND** otherwise uses the fixed front-center fallback
+- **AND** QIDI's nozzle-temperature Z compensation is applied from the first-layer target at a known absolute Z reference after mesh and saved-offset application
 - **AND** first-layer nozzle temperature is established before extrusion
 - **AND** the prime extrusion remains attributed to the selected initial tool
 
