@@ -126,6 +126,31 @@ class DirectReadCapture:
 
 
 @dataclass(frozen=True)
+class OriginSample:
+    call_start: float
+    call_end: float
+    print_start: float
+    print_end: float
+    counts: int
+
+
+@dataclass(frozen=True)
+class OriginCapture:
+    samples: tuple
+    requested_responses: int
+    requested_rate: int
+    duration: float
+
+    @property
+    def received_responses(self):
+        return len(self.samples)
+
+    @property
+    def complete(self):
+        return self.received_responses == self.requested_responses
+
+
+@dataclass(frozen=True)
 class CycleMetrics:
     k: float
     amplitude: float
@@ -1466,8 +1491,8 @@ def _invoke_stock_sensor_shutdown(printer):
     invoke_shutdown = getattr(printer, "invoke_shutdown", None)
     if callable(invoke_shutdown):
         invoke_shutdown(
-            "PA direct-read capture did not preserve verified stock sensor "
-            "state; FIRMWARE_RESTART required"
+            "PA sensor capture did not preserve verified stock sensor state; "
+            "FIRMWARE_RESTART required"
         )
 
 
@@ -1488,10 +1513,16 @@ class QidiOriginAdapter:
             or not callable(home_state_send)
         ):
             raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        mcu = getattr(sensor, "mcu", None)
+        estimated_print_time = getattr(mcu, "estimated_print_time", None)
+        if not callable(estimated_print_time):
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
         self.printer = printer
         self.sensor = sensor
         self.read_origin = read_origin
         self.home_state_send = home_state_send
+        self.estimated_print_time = estimated_print_time
+        self.active = False
 
     def validate_configuration(self):
         if id(self.sensor) in _ACTIVE_SENSOR_IDS:
@@ -1520,6 +1551,98 @@ class QidiOriginAdapter:
         ):
             raise CalibrationError("INVALID_ORIGIN_RESPONSE")
         return value
+
+    def capture(self, reactor, duration, rate):
+        request_count = _bounded_capture_request_count(duration, rate)
+        if rate > 50 or request_count > 250:
+            raise CalibrationError("CAPTURE_RESOURCE_LIMIT")
+        sensor_id = id(self.sensor)
+        if self.active or sensor_id in _ACTIVE_SENSOR_IDS:
+            raise CalibrationError("SENSOR_BUSY")
+        self.validate_configuration()
+
+        monotonic = getattr(reactor, "monotonic", None)
+        pause = getattr(reactor, "pause", None)
+        if not callable(monotonic) or not callable(pause):
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        start = monotonic()
+        if not _finite_number(start):
+            raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+        samples = []
+        primary_error = None
+        ownership_unsafe = False
+        post_state_unsafe = False
+        self.active = True
+        _ACTIVE_SENSOR_IDS.add(sensor_id)
+        try:
+            for index in range(request_count):
+                call_start = monotonic()
+                print_start = self.estimated_print_time(call_start)
+                counts = self.read()
+                call_end = monotonic()
+                print_end = self.estimated_print_time(call_end)
+                if (
+                    not all(
+                        _finite_number(value)
+                        for value in (
+                            call_start,
+                            call_end,
+                            print_start,
+                            print_end,
+                        )
+                    )
+                    or call_end < call_start
+                    or print_end < print_start
+                    or (
+                        samples
+                        and (
+                            call_start < samples[-1].call_start
+                            or print_start < samples[-1].print_start
+                        )
+                    )
+                ):
+                    raise CalibrationError("UNSUPPORTED_SENSOR_INTERFACE")
+                samples.append(
+                    OriginSample(
+                        call_start=call_start,
+                        call_end=call_end,
+                        print_start=print_start,
+                        print_end=print_end,
+                        counts=counts,
+                    )
+                )
+                if index + 1 < request_count:
+                    pause(start + float(index + 1) / rate)
+        except Exception as exc:
+            primary_error = exc
+        finally:
+            ownership_unsafe = (
+                not self.active or sensor_id not in _ACTIVE_SENSOR_IDS
+            )
+            self.active = False
+            _ACTIVE_SENSOR_IDS.discard(sensor_id)
+            if not ownership_unsafe:
+                try:
+                    self.validate_configuration()
+                except Exception:
+                    post_state_unsafe = True
+            if ownership_unsafe or post_state_unsafe:
+                _invoke_stock_sensor_shutdown(self.printer)
+
+        if ownership_unsafe:
+            raise CalibrationError("SENSOR_OWNERSHIP_UNSAFE") from primary_error
+        if post_state_unsafe:
+            raise CalibrationError("STOCK_SENSOR_STATE_CHANGED") from primary_error
+        if primary_error is not None:
+            if isinstance(primary_error, CalibrationError):
+                raise primary_error
+            raise CalibrationError("ORIGIN_CAPTURE_FAILED") from primary_error
+        return OriginCapture(
+            samples=tuple(samples),
+            requested_responses=request_count,
+            requested_rate=rate,
+            duration=duration,
+        )
 
 
 class QidiCS1237Adapter:
@@ -1792,34 +1915,26 @@ class TLTGPressureAdvance:
             raise gcmd.error("PA_CAPTURE_REQUIRES_IDLE_PRINTER") from exc
         try:
             adapter = QidiOriginAdapter(self.printer)
-            adapter.validate_configuration()
+            capture = adapter.capture(reactor, duration, rate)
         except CalibrationError as exc:
             raise gcmd.error(_calibration_reason(exc)) from exc
-        start = reactor.monotonic()
-        samples = []
-        for index in range(request_count):
-            before = reactor.monotonic()
-            try:
-                value = adapter.read()
-            except CalibrationError as exc:
-                raise gcmd.error(_calibration_reason(exc)) from exc
-            after = reactor.monotonic()
-            samples.append(
-                {
-                    "offset": before - start,
-                    "duration": after - before,
-                    "value": value,
-                }
-            )
-            if index + 1 < request_count:
-                reactor.pause(start + float(index + 1) / rate)
+        first_call = capture.samples[0].call_start if capture.samples else 0.0
         path = "/tmp/tltg_pa_origin_capture_%d.json" % int(time.time())
         document = {
-            "requested_rate": rate,
-            "requested_responses": request_count,
-            "received_responses": len(samples),
-            "duration": duration,
-            "samples": samples,
+            "requested_rate": capture.requested_rate,
+            "requested_responses": capture.requested_responses,
+            "received_responses": capture.received_responses,
+            "duration": capture.duration,
+            "samples": [
+                {
+                    "offset": sample.call_start - first_call,
+                    "duration": sample.call_end - sample.call_start,
+                    "print_start": sample.print_start,
+                    "print_end": sample.print_end,
+                    "value": sample.counts,
+                }
+                for sample in capture.samples
+            ],
         }
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(document, handle, separators=(",", ":"))

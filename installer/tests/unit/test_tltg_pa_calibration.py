@@ -912,6 +912,89 @@ class TLTGPressureAdvanceRuntimeGuardTests(unittest.TestCase):
         self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [])
         self.assertEqual(sensor.mcu.read_command.sends, [])
 
+    def test_origin_capture_records_call_intervals_and_releases_ownership(self):
+        sensor = _FakeSensor(origin_values=[-3, -2, -1, 0])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        capture = adapter.capture(_FakeReactor(), 0.1, 40)
+        self.assertTrue(capture.complete)
+        self.assertEqual(capture.requested_responses, 4)
+        self.assertEqual([item.counts for item in capture.samples], [-3, -2, -1, 0])
+        self.assertEqual(
+            [item.call_start for item in capture.samples],
+            [0.0, 0.025, 0.05, 0.075],
+        )
+        self.assertEqual(
+            [item.print_start for item in capture.samples],
+            [0.0, 0.025, 0.05, 0.075],
+        )
+        self.assertFalse(adapter.active)
+        self.assertNotIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+        self.assertEqual(
+            sensor.query_cs1237_home_state_cmd.sends,
+            [[sensor.oid], [sensor.oid]],
+        )
+        self.assertEqual(sensor.query_cs1237_config_read_cmd.sends, [])
+        self.assertEqual(sensor.mcu.read_command.sends, [])
+        self.assertEqual(printer.shutdowns, [])
+
+    def test_origin_capture_shuts_down_on_post_capture_sensor_state_change(self):
+        sensor = _FakeSensor(origin_values=[1, 2])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        reactor = _FakeReactor(
+            on_pause=lambda: setattr(
+                sensor.query_cs1237_home_state_cmd, "homing", 1
+            )
+        )
+        with self.assertRaisesRegex(
+            pa.CalibrationError, "STOCK_SENSOR_STATE_CHANGED"
+        ):
+            pa.QidiOriginAdapter(printer).capture(reactor, 0.1, 20)
+        self.assertEqual(len(printer.shutdowns), 1)
+        self.assertNotIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+
+    def test_origin_capture_shuts_down_on_ownership_loss(self):
+        sensor = _FakeSensor(origin_values=[1, 2])
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        reactor = _FakeReactor(
+            on_pause=lambda: pa._ACTIVE_SENSOR_IDS.discard(id(sensor))
+        )
+        with self.assertRaisesRegex(
+            pa.CalibrationError, "SENSOR_OWNERSHIP_UNSAFE"
+        ):
+            pa.QidiOriginAdapter(printer).capture(reactor, 0.1, 20)
+        self.assertEqual(len(printer.shutdowns), 1)
+        self.assertNotIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+
+    def test_origin_capture_read_failure_releases_safe_state(self):
+        sensor = _FakeSensor(origin_values=[1])
+        sensor.read_origin_data = mock.Mock(side_effect=RuntimeError("read failed"))
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        with self.assertRaisesRegex(pa.CalibrationError, "ORIGIN_CAPTURE_FAILED"):
+            adapter.capture(_FakeReactor(), 0.1, 20)
+        self.assertFalse(adapter.active)
+        self.assertNotIn(id(sensor), pa._ACTIVE_SENSOR_IDS)
+        self.assertEqual(printer.shutdowns, [])
+
+    def test_origin_capture_enforces_characterization_resource_bounds(self):
+        sensor = _FakeSensor()
+        printer = _LookupPrinter(
+            {"probe_air": type("Probe", (), {"sensor_helper": sensor})()}
+        )
+        adapter = pa.QidiOriginAdapter(printer)
+        with self.assertRaisesRegex(pa.CalibrationError, "CAPTURE_RESOURCE_LIMIT"):
+            adapter.capture(_FakeReactor(), 5.0, 51)
+        self.assertEqual(sensor.query_cs1237_home_state_cmd.sends, [])
+
     def test_sensor_adapter_schedules_non_homing_reads_and_releases_ownership(self):
         sensor = _FakeSensor()
         printer = _LookupPrinter({"probe_air": type("Probe", (), {"sensor_helper": sensor})()})

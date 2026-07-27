@@ -74,10 +74,12 @@ The system SHALL access the stock `probe_air` CS1237 acquisition path through a 
 - **THEN** the adapter does not treat response cadence or cardinality as proof of conversion freshness
 - **AND** public and developer capture remain disabled
 
-#### Scenario: GPIO-passive origin cache remains unvalidated
+#### Scenario: GPIO-passive origin cache remains partially validated
 - **WHEN** `read_origin_data()` returns changing cached values without driving sensor pins
-- **THEN** the adapter may retain that path for source-gated characterization
-- **AND** public capture remains disabled until conversion age, under-force timing, and stock probe preservation are hardware-validated
+- **THEN** the adapter may retain that path for bounded source-gated characterization at no more than 50 Hz and 250 calls
+- **AND** it records host and estimated print-time call intervals, validates homing ownership before and after capture, and releases exclusive process-local ownership on every path
+- **AND** an unverifiable post-capture homing state or ownership loss forces shutdown before subsequent probing
+- **AND** public capture remains disabled until cached-conversion age, deterministic schedule alignment, invalid-value classification, and candidate repeatability are hardware-validated
 
 #### Scenario: Configuration reads are not side-effect-free
 - **WHEN** `query_cs1237_config_r` drives the live CS1237 clock without a validated serialization contract

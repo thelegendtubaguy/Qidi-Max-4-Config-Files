@@ -1,0 +1,2156 @@
+{
+  "acquisition": {
+    "host_method": "probe_air.sensor_helper.read_origin_data()",
+    "mcu_response": "query_cs1237_zero_read oid=5 data=<4 bytes>",
+    "qualification": "Each sample time is the interval between host call start and response completion, mapped through MCU estimated print time. It does not identify ADC conversion time or bound cached-conversion age.",
+    "retained_timebase": "Sample start/end offsets are estimated MCU print times relative to capture_start; host monotonic absolute times are removed. call_duration values are measured from host monotonic time.",
+    "sampling_rule": "Request one synchronous cache read per requested poll period until estimated MCU print time reaches capture_end; host stalls may create local cadence gaps followed by catch-up reads."
+  },
+  "cleanup": {
+    "final": "CLEAR_OOZE, CLEAR_FLUSH, heater target zero, full G28, absolute Z=200, return to trash",
+    "final_state": {
+      "filament_loaded": true,
+      "filament_source": "qidi_box_slot4",
+      "heater_target_c": 0.0,
+      "klipper": "ready",
+      "logical_e": 0.0,
+      "pressure_advance": 0.032,
+      "print_state": "standby",
+      "smooth_time": 0.03,
+      "xyz": [
+        135.0,
+        403.0,
+        200.0
+      ]
+    },
+    "intermediate": "CLEAR_FLUSH and return to trash after no more than two measured pulses",
+    "ordinary_e_move_result": "physical nominal E advanced exactly 1.0 mm after direct-pulse rebasing; logical E returned to 0.0",
+    "ordinary_relative_e_move_mm": 1.0,
+    "post_capture_stock_g28": "completed"
+  },
+  "conditions": {
+    "filament_source": "qidi_box_slot4",
+    "high_time_s": 0.4,
+    "high_velocity_mm_s": 2.0,
+    "lead_time_s": 0.15,
+    "low_velocity_mm_s": 0.5,
+    "material": "PLA",
+    "nozzle_mm": 0.4,
+    "requested_poll_period_s": 0.025,
+    "requested_poll_rate_hz": 40,
+    "temperature_c": 215,
+    "toolhead_xyz": [
+      135.0,
+      403.0,
+      200.0
+    ]
+  },
+  "qualification": "Four stationary pulses produced live force-correlated origin-cache responses without changing XYZ, pressure advance, smoothing, logical E, or filament source. This establishes under-force feasibility only. Cache age, deterministic conversion alignment, invalid-read classification, and candidate repeatability remain unresolved; public and developer capture remain disabled.",
+  "runs": [
+    {
+      "acceleration_mm_s2": 10.0,
+      "achieved_mean_start_rate_hz": 40.211,
+      "call_duration_max_ms": 52.041,
+      "call_duration_median_ms": 11.677,
+      "capture_duration_s": 2.0,
+      "id": "k020-a10-r1",
+      "k": 0.02,
+      "logical_e_before_after": [
+        0.0,
+        0.0
+      ],
+      "pressure_advance_before_after": [
+        0.032,
+        0.032
+      ],
+      "pulse_distance_mm": 1.325,
+      "sample_start_gap_max_ms": 52.192,
+      "sample_start_span_s": 2.287906,
+      "samples": [
+        {
+          "counts": -275636,
+          "estimated_print_time_end_offset_s": -0.282828,
+          "estimated_print_time_start_offset_s": -0.301496
+        },
+        {
+          "counts": -274714,
+          "estimated_print_time_end_offset_s": -0.269829,
+          "estimated_print_time_start_offset_s": -0.282553
+        },
+        {
+          "counts": -274623,
+          "estimated_print_time_end_offset_s": -0.252056,
+          "estimated_print_time_start_offset_s": -0.26426
+        },
+        {
+          "counts": -273559,
+          "estimated_print_time_end_offset_s": -0.226361,
+          "estimated_print_time_start_offset_s": -0.239011
+        },
+        {
+          "counts": -274995,
+          "estimated_print_time_end_offset_s": -0.201036,
+          "estimated_print_time_start_offset_s": -0.213506
+        },
+        {
+          "counts": -275545,
+          "estimated_print_time_end_offset_s": -0.176613,
+          "estimated_print_time_start_offset_s": -0.18922
+        },
+        {
+          "counts": -275538,
+          "estimated_print_time_end_offset_s": -0.152445,
+          "estimated_print_time_start_offset_s": -0.163717
+        },
+        {
+          "counts": -274814,
+          "estimated_print_time_end_offset_s": -0.12706,
+          "estimated_print_time_start_offset_s": -0.138468
+        },
+        {
+          "counts": -273919,
+          "estimated_print_time_end_offset_s": -0.102831,
+          "estimated_print_time_start_offset_s": -0.114588
+        },
+        {
+          "counts": -275216,
+          "estimated_print_time_end_offset_s": -0.077861,
+          "estimated_print_time_start_offset_s": -0.089254
+        },
+        {
+          "counts": -274337,
+          "estimated_print_time_end_offset_s": -0.053509,
+          "estimated_print_time_start_offset_s": -0.064832
+        },
+        {
+          "counts": -274095,
+          "estimated_print_time_end_offset_s": -0.028013,
+          "estimated_print_time_start_offset_s": -0.039325
+        },
+        {
+          "counts": -274528,
+          "estimated_print_time_end_offset_s": -0.002411,
+          "estimated_print_time_start_offset_s": -0.013571
+        },
+        {
+          "counts": -274349,
+          "estimated_print_time_end_offset_s": 0.022632,
+          "estimated_print_time_start_offset_s": 0.010817
+        },
+        {
+          "counts": -273707,
+          "estimated_print_time_end_offset_s": 0.047532,
+          "estimated_print_time_start_offset_s": 0.035854
+        },
+        {
+          "counts": -274925,
+          "estimated_print_time_end_offset_s": 0.072039,
+          "estimated_print_time_start_offset_s": 0.060709
+        },
+        {
+          "counts": -275379,
+          "estimated_print_time_end_offset_s": 0.099044,
+          "estimated_print_time_start_offset_s": 0.088014
+        },
+        {
+          "counts": -274278,
+          "estimated_print_time_end_offset_s": 0.122754,
+          "estimated_print_time_start_offset_s": 0.111447
+        },
+        {
+          "counts": -274125,
+          "estimated_print_time_end_offset_s": 0.148033,
+          "estimated_print_time_start_offset_s": 0.13594
+        },
+        {
+          "counts": -275135,
+          "estimated_print_time_end_offset_s": 0.176672,
+          "estimated_print_time_start_offset_s": 0.161145
+        },
+        {
+          "counts": -274256,
+          "estimated_print_time_end_offset_s": 0.19774,
+          "estimated_print_time_start_offset_s": 0.185987
+        },
+        {
+          "counts": -273436,
+          "estimated_print_time_end_offset_s": 0.222172,
+          "estimated_print_time_start_offset_s": 0.21086
+        },
+        {
+          "counts": -274052,
+          "estimated_print_time_end_offset_s": 0.249288,
+          "estimated_print_time_start_offset_s": 0.236436
+        },
+        {
+          "counts": -274137,
+          "estimated_print_time_end_offset_s": 0.273069,
+          "estimated_print_time_start_offset_s": 0.261478
+        },
+        {
+          "counts": -274478,
+          "estimated_print_time_end_offset_s": 0.297755,
+          "estimated_print_time_start_offset_s": 0.286294
+        },
+        {
+          "counts": -274077,
+          "estimated_print_time_end_offset_s": 0.322545,
+          "estimated_print_time_start_offset_s": 0.31083
+        },
+        {
+          "counts": -273896,
+          "estimated_print_time_end_offset_s": 0.348687,
+          "estimated_print_time_start_offset_s": 0.335955
+        },
+        {
+          "counts": -272646,
+          "estimated_print_time_end_offset_s": 0.372787,
+          "estimated_print_time_start_offset_s": 0.360813
+        },
+        {
+          "counts": -274277,
+          "estimated_print_time_end_offset_s": 0.398149,
+          "estimated_print_time_start_offset_s": 0.386089
+        },
+        {
+          "counts": -273489,
+          "estimated_print_time_end_offset_s": 0.422695,
+          "estimated_print_time_start_offset_s": 0.411334
+        },
+        {
+          "counts": -273831,
+          "estimated_print_time_end_offset_s": 0.447281,
+          "estimated_print_time_start_offset_s": 0.435846
+        },
+        {
+          "counts": -273267,
+          "estimated_print_time_end_offset_s": 0.472873,
+          "estimated_print_time_start_offset_s": 0.461177
+        },
+        {
+          "counts": -273777,
+          "estimated_print_time_end_offset_s": 0.498112,
+          "estimated_print_time_start_offset_s": 0.485601
+        },
+        {
+          "counts": -279853,
+          "estimated_print_time_end_offset_s": 0.52412,
+          "estimated_print_time_start_offset_s": 0.512604
+        },
+        {
+          "counts": -280093,
+          "estimated_print_time_end_offset_s": 0.547588,
+          "estimated_print_time_start_offset_s": 0.536321
+        },
+        {
+          "counts": -281258,
+          "estimated_print_time_end_offset_s": 0.57304,
+          "estimated_print_time_start_offset_s": 0.561046
+        },
+        {
+          "counts": -280834,
+          "estimated_print_time_end_offset_s": 0.598499,
+          "estimated_print_time_start_offset_s": 0.586473
+        },
+        {
+          "counts": -280714,
+          "estimated_print_time_end_offset_s": 0.623947,
+          "estimated_print_time_start_offset_s": 0.612615
+        },
+        {
+          "counts": -281553,
+          "estimated_print_time_end_offset_s": 0.685105,
+          "estimated_print_time_start_offset_s": 0.63618
+        },
+        {
+          "counts": -282964,
+          "estimated_print_time_end_offset_s": 0.699623,
+          "estimated_print_time_start_offset_s": 0.685376
+        },
+        {
+          "counts": -284455,
+          "estimated_print_time_end_offset_s": 0.712048,
+          "estimated_print_time_start_offset_s": 0.700077
+        },
+        {
+          "counts": -284102,
+          "estimated_print_time_end_offset_s": 0.724985,
+          "estimated_print_time_start_offset_s": 0.712368
+        },
+        {
+          "counts": -282534,
+          "estimated_print_time_end_offset_s": 0.747947,
+          "estimated_print_time_start_offset_s": 0.736184
+        },
+        {
+          "counts": -283522,
+          "estimated_print_time_end_offset_s": 0.773178,
+          "estimated_print_time_start_offset_s": 0.761537
+        },
+        {
+          "counts": -282367,
+          "estimated_print_time_end_offset_s": 0.797599,
+          "estimated_print_time_start_offset_s": 0.786354
+        },
+        {
+          "counts": -283447,
+          "estimated_print_time_end_offset_s": 0.821695,
+          "estimated_print_time_start_offset_s": 0.810743
+        },
+        {
+          "counts": -282246,
+          "estimated_print_time_end_offset_s": 0.847999,
+          "estimated_print_time_start_offset_s": 0.83582
+        },
+        {
+          "counts": -283052,
+          "estimated_print_time_end_offset_s": 0.87213,
+          "estimated_print_time_start_offset_s": 0.860817
+        },
+        {
+          "counts": -282561,
+          "estimated_print_time_end_offset_s": 0.897671,
+          "estimated_print_time_start_offset_s": 0.885975
+        },
+        {
+          "counts": -282609,
+          "estimated_print_time_end_offset_s": 0.922467,
+          "estimated_print_time_start_offset_s": 0.910866
+        },
+        {
+          "counts": -282010,
+          "estimated_print_time_end_offset_s": 0.946874,
+          "estimated_print_time_start_offset_s": 0.93566
+        },
+        {
+          "counts": -281989,
+          "estimated_print_time_end_offset_s": 0.972587,
+          "estimated_print_time_start_offset_s": 0.961044
+        },
+        {
+          "counts": -281564,
+          "estimated_print_time_end_offset_s": 0.997834,
+          "estimated_print_time_start_offset_s": 0.985337
+        },
+        {
+          "counts": -281297,
+          "estimated_print_time_end_offset_s": 1.022563,
+          "estimated_print_time_start_offset_s": 1.011282
+        },
+        {
+          "counts": -281785,
+          "estimated_print_time_end_offset_s": 1.047905,
+          "estimated_print_time_start_offset_s": 1.035927
+        },
+        {
+          "counts": -280394,
+          "estimated_print_time_end_offset_s": 1.072533,
+          "estimated_print_time_start_offset_s": 1.061276
+        },
+        {
+          "counts": -281484,
+          "estimated_print_time_end_offset_s": 1.097323,
+          "estimated_print_time_start_offset_s": 1.085912
+        },
+        {
+          "counts": -280702,
+          "estimated_print_time_end_offset_s": 1.125374,
+          "estimated_print_time_start_offset_s": 1.113664
+        },
+        {
+          "counts": -280413,
+          "estimated_print_time_end_offset_s": 1.148355,
+          "estimated_print_time_start_offset_s": 1.136959
+        },
+        {
+          "counts": -280548,
+          "estimated_print_time_end_offset_s": 1.175585,
+          "estimated_print_time_start_offset_s": 1.161632
+        },
+        {
+          "counts": -280719,
+          "estimated_print_time_end_offset_s": 1.198595,
+          "estimated_print_time_start_offset_s": 1.185954
+        },
+        {
+          "counts": -280138,
+          "estimated_print_time_end_offset_s": 1.223932,
+          "estimated_print_time_start_offset_s": 1.211408
+        },
+        {
+          "counts": -278250,
+          "estimated_print_time_end_offset_s": 1.249179,
+          "estimated_print_time_start_offset_s": 1.237737
+        },
+        {
+          "counts": -278114,
+          "estimated_print_time_end_offset_s": 1.272557,
+          "estimated_print_time_start_offset_s": 1.26139
+        },
+        {
+          "counts": -276826,
+          "estimated_print_time_end_offset_s": 1.298066,
+          "estimated_print_time_start_offset_s": 1.286461
+        },
+        {
+          "counts": -276781,
+          "estimated_print_time_end_offset_s": 1.322594,
+          "estimated_print_time_start_offset_s": 1.311336
+        },
+        {
+          "counts": -275243,
+          "estimated_print_time_end_offset_s": 1.347896,
+          "estimated_print_time_start_offset_s": 1.335974
+        },
+        {
+          "counts": -276481,
+          "estimated_print_time_end_offset_s": 1.373197,
+          "estimated_print_time_start_offset_s": 1.361311
+        },
+        {
+          "counts": -275986,
+          "estimated_print_time_end_offset_s": 1.398015,
+          "estimated_print_time_start_offset_s": 1.387013
+        },
+        {
+          "counts": -276661,
+          "estimated_print_time_end_offset_s": 1.422617,
+          "estimated_print_time_start_offset_s": 1.411333
+        },
+        {
+          "counts": -276108,
+          "estimated_print_time_end_offset_s": 1.447398,
+          "estimated_print_time_start_offset_s": 1.435776
+        },
+        {
+          "counts": -276915,
+          "estimated_print_time_end_offset_s": 1.472502,
+          "estimated_print_time_start_offset_s": 1.460748
+        },
+        {
+          "counts": -276740,
+          "estimated_print_time_end_offset_s": 1.500473,
+          "estimated_print_time_start_offset_s": 1.487396
+        },
+        {
+          "counts": -275068,
+          "estimated_print_time_end_offset_s": 1.523981,
+          "estimated_print_time_start_offset_s": 1.511389
+        },
+        {
+          "counts": -274488,
+          "estimated_print_time_end_offset_s": 1.549836,
+          "estimated_print_time_start_offset_s": 1.537
+        },
+        {
+          "counts": -274550,
+          "estimated_print_time_end_offset_s": 1.572408,
+          "estimated_print_time_start_offset_s": 1.561126
+        },
+        {
+          "counts": -274780,
+          "estimated_print_time_end_offset_s": 1.599786,
+          "estimated_print_time_start_offset_s": 1.587938
+        },
+        {
+          "counts": -273255,
+          "estimated_print_time_end_offset_s": 1.622472,
+          "estimated_print_time_start_offset_s": 1.611167
+        },
+        {
+          "counts": -273956,
+          "estimated_print_time_end_offset_s": 1.688668,
+          "estimated_print_time_start_offset_s": 1.636625
+        },
+        {
+          "counts": -275223,
+          "estimated_print_time_end_offset_s": 1.701186,
+          "estimated_print_time_start_offset_s": 1.688818
+        },
+        {
+          "counts": -274198,
+          "estimated_print_time_end_offset_s": 1.71331,
+          "estimated_print_time_start_offset_s": 1.70147
+        },
+        {
+          "counts": -274195,
+          "estimated_print_time_end_offset_s": 1.728856,
+          "estimated_print_time_start_offset_s": 1.71352
+        },
+        {
+          "counts": -275034,
+          "estimated_print_time_end_offset_s": 1.747317,
+          "estimated_print_time_start_offset_s": 1.736101
+        },
+        {
+          "counts": -274270,
+          "estimated_print_time_end_offset_s": 1.772842,
+          "estimated_print_time_start_offset_s": 1.761411
+        },
+        {
+          "counts": -273833,
+          "estimated_print_time_end_offset_s": 1.797588,
+          "estimated_print_time_start_offset_s": 1.78611
+        },
+        {
+          "counts": -274889,
+          "estimated_print_time_end_offset_s": 1.822124,
+          "estimated_print_time_start_offset_s": 1.81069
+        },
+        {
+          "counts": -274852,
+          "estimated_print_time_end_offset_s": 1.847607,
+          "estimated_print_time_start_offset_s": 1.836367
+        },
+        {
+          "counts": -274167,
+          "estimated_print_time_end_offset_s": 1.872151,
+          "estimated_print_time_start_offset_s": 1.860845
+        },
+        {
+          "counts": -274806,
+          "estimated_print_time_end_offset_s": 1.898378,
+          "estimated_print_time_start_offset_s": 1.886687
+        },
+        {
+          "counts": -274115,
+          "estimated_print_time_end_offset_s": 1.922148,
+          "estimated_print_time_start_offset_s": 1.910882
+        },
+        {
+          "counts": -271916,
+          "estimated_print_time_end_offset_s": 1.948635,
+          "estimated_print_time_start_offset_s": 1.936379
+        },
+        {
+          "counts": -274279,
+          "estimated_print_time_end_offset_s": 1.973165,
+          "estimated_print_time_start_offset_s": 1.961549
+        },
+        {
+          "counts": -274446,
+          "estimated_print_time_end_offset_s": 1.997774,
+          "estimated_print_time_start_offset_s": 1.98641
+        }
+      ],
+      "samples_received": 93,
+      "smooth_time_before_after": [
+        0.03,
+        0.03
+      ],
+      "transition_offsets_s": {
+        "end": 1.5,
+        "fall": 1.2,
+        "fall_end": 1.35,
+        "rise": 0.65,
+        "rise_end": 0.8,
+        "start": 0.5
+      },
+      "unique_values": 93,
+      "window_summary": {
+        "baseline": {
+          "count": 25,
+          "mad_counts": 549,
+          "max_counts": -272646,
+          "median_counts": -274256,
+          "min_counts": -281258
+        },
+        "high": {
+          "count": 16,
+          "mad_counts": 910.5,
+          "max_counts": -280394,
+          "median_counts": -281674.5,
+          "min_counts": -283447
+        },
+        "high_delta_counts": -7418.5,
+        "ramp_down": {
+          "count": 6,
+          "mad_counts": 734.5,
+          "max_counts": -275243,
+          "median_counts": -277470.0,
+          "min_counts": -280138
+        },
+        "ramp_up": {
+          "count": 7,
+          "mad_counts": 597,
+          "max_counts": -281553,
+          "median_counts": -282964,
+          "min_counts": -284455
+        },
+        "recovery": {
+          "count": 26,
+          "mad_counts": 484.0,
+          "max_counts": -271916,
+          "median_counts": -274665.0,
+          "min_counts": -276915
+        },
+        "recovery_delta_counts": -409.0
+      },
+      "xyz_unchanged": true
+    },
+    {
+      "acceleration_mm_s2": 10.0,
+      "achieved_mean_start_rate_hz": 40.051,
+      "call_duration_max_ms": 52.262,
+      "call_duration_median_ms": 11.738,
+      "capture_duration_s": 2.0,
+      "id": "k020-a10-r2",
+      "k": 0.02,
+      "logical_e_before_after": [
+        0.0,
+        0.0
+      ],
+      "pressure_advance_before_after": [
+        0.032,
+        0.032
+      ],
+      "pulse_distance_mm": 1.325,
+      "sample_start_gap_max_ms": 52.502,
+      "sample_start_span_s": 2.297059,
+      "samples": [
+        {
+          "counts": -262985,
+          "estimated_print_time_end_offset_s": -0.296022,
+          "estimated_print_time_start_offset_s": -0.310517
+        },
+        {
+          "counts": -261254,
+          "estimated_print_time_end_offset_s": -0.274379,
+          "estimated_print_time_start_offset_s": -0.288985
+        },
+        {
+          "counts": -261245,
+          "estimated_print_time_end_offset_s": -0.252731,
+          "estimated_print_time_start_offset_s": -0.264372
+        },
+        {
+          "counts": -262559,
+          "estimated_print_time_end_offset_s": -0.227232,
+          "estimated_print_time_start_offset_s": -0.238623
+        },
+        {
+          "counts": -260945,
+          "estimated_print_time_end_offset_s": -0.19789,
+          "estimated_print_time_start_offset_s": -0.214111
+        },
+        {
+          "counts": -260893,
+          "estimated_print_time_end_offset_s": -0.17677,
+          "estimated_print_time_start_offset_s": -0.188649
+        },
+        {
+          "counts": -261166,
+          "estimated_print_time_end_offset_s": -0.15197,
+          "estimated_print_time_start_offset_s": -0.163719
+        },
+        {
+          "counts": -261893,
+          "estimated_print_time_end_offset_s": -0.125942,
+          "estimated_print_time_start_offset_s": -0.138838
+        },
+        {
+          "counts": -261381,
+          "estimated_print_time_end_offset_s": -0.101172,
+          "estimated_print_time_start_offset_s": -0.113492
+        },
+        {
+          "counts": -260991,
+          "estimated_print_time_end_offset_s": -0.077048,
+          "estimated_print_time_start_offset_s": -0.088755
+        },
+        {
+          "counts": -262637,
+          "estimated_print_time_end_offset_s": -0.052044,
+          "estimated_print_time_start_offset_s": -0.063395
+        },
+        {
+          "counts": -262449,
+          "estimated_print_time_end_offset_s": -0.027639,
+          "estimated_print_time_start_offset_s": -0.038922
+        },
+        {
+          "counts": -261470,
+          "estimated_print_time_end_offset_s": 4.6e-05,
+          "estimated_print_time_start_offset_s": -0.012276
+        },
+        {
+          "counts": -261079,
+          "estimated_print_time_end_offset_s": 0.022083,
+          "estimated_print_time_start_offset_s": 0.011039
+        },
+        {
+          "counts": -263090,
+          "estimated_print_time_end_offset_s": 0.048936,
+          "estimated_print_time_start_offset_s": 0.036269
+        },
+        {
+          "counts": -261376,
+          "estimated_print_time_end_offset_s": 0.072601,
+          "estimated_print_time_start_offset_s": 0.061062
+        },
+        {
+          "counts": -261976,
+          "estimated_print_time_end_offset_s": 0.098951,
+          "estimated_print_time_start_offset_s": 0.085847
+        },
+        {
+          "counts": -260965,
+          "estimated_print_time_end_offset_s": 0.122806,
+          "estimated_print_time_start_offset_s": 0.110976
+        },
+        {
+          "counts": -262305,
+          "estimated_print_time_end_offset_s": 0.188256,
+          "estimated_print_time_start_offset_s": 0.135991
+        },
+        {
+          "counts": -262587,
+          "estimated_print_time_end_offset_s": 0.201467,
+          "estimated_print_time_start_offset_s": 0.188401
+        },
+        {
+          "counts": -262312,
+          "estimated_print_time_end_offset_s": 0.213064,
+          "estimated_print_time_start_offset_s": 0.201714
+        },
+        {
+          "counts": -262506,
+          "estimated_print_time_end_offset_s": 0.225776,
+          "estimated_print_time_start_offset_s": 0.213249
+        },
+        {
+          "counts": -262526,
+          "estimated_print_time_end_offset_s": 0.249376,
+          "estimated_print_time_start_offset_s": 0.23609
+        },
+        {
+          "counts": -263001,
+          "estimated_print_time_end_offset_s": 0.273021,
+          "estimated_print_time_start_offset_s": 0.261343
+        },
+        {
+          "counts": -261428,
+          "estimated_print_time_end_offset_s": 0.297784,
+          "estimated_print_time_start_offset_s": 0.286217
+        },
+        {
+          "counts": -262520,
+          "estimated_print_time_end_offset_s": 0.323066,
+          "estimated_print_time_start_offset_s": 0.31165
+        },
+        {
+          "counts": -261326,
+          "estimated_print_time_end_offset_s": 0.348028,
+          "estimated_print_time_start_offset_s": 0.336234
+        },
+        {
+          "counts": -262727,
+          "estimated_print_time_end_offset_s": 0.372396,
+          "estimated_print_time_start_offset_s": 0.360971
+        },
+        {
+          "counts": -261047,
+          "estimated_print_time_end_offset_s": 0.398957,
+          "estimated_print_time_start_offset_s": 0.386743
+        },
+        {
+          "counts": -261993,
+          "estimated_print_time_end_offset_s": 0.422638,
+          "estimated_print_time_start_offset_s": 0.410797
+        },
+        {
+          "counts": -261868,
+          "estimated_print_time_end_offset_s": 0.447217,
+          "estimated_print_time_start_offset_s": 0.435994
+        },
+        {
+          "counts": -261178,
+          "estimated_print_time_end_offset_s": 0.472727,
+          "estimated_print_time_start_offset_s": 0.461274
+        },
+        {
+          "counts": -262467,
+          "estimated_print_time_end_offset_s": 0.497364,
+          "estimated_print_time_start_offset_s": 0.485917
+        },
+        {
+          "counts": -271632,
+          "estimated_print_time_end_offset_s": 0.522637,
+          "estimated_print_time_start_offset_s": 0.511036
+        },
+        {
+          "counts": -272482,
+          "estimated_print_time_end_offset_s": 0.547219,
+          "estimated_print_time_start_offset_s": 0.535735
+        },
+        {
+          "counts": -273018,
+          "estimated_print_time_end_offset_s": 0.572777,
+          "estimated_print_time_start_offset_s": 0.561375
+        },
+        {
+          "counts": -271436,
+          "estimated_print_time_end_offset_s": 0.597822,
+          "estimated_print_time_start_offset_s": 0.585942
+        },
+        {
+          "counts": -272056,
+          "estimated_print_time_end_offset_s": 0.62252,
+          "estimated_print_time_start_offset_s": 0.611301
+        },
+        {
+          "counts": -271105,
+          "estimated_print_time_end_offset_s": 0.64927,
+          "estimated_print_time_start_offset_s": 0.635849
+        },
+        {
+          "counts": -272711,
+          "estimated_print_time_end_offset_s": 0.673017,
+          "estimated_print_time_start_offset_s": 0.661467
+        },
+        {
+          "counts": -274112,
+          "estimated_print_time_end_offset_s": 0.698492,
+          "estimated_print_time_start_offset_s": 0.686112
+        },
+        {
+          "counts": -275471,
+          "estimated_print_time_end_offset_s": 0.72247,
+          "estimated_print_time_start_offset_s": 0.711262
+        },
+        {
+          "counts": -275836,
+          "estimated_print_time_end_offset_s": 0.748184,
+          "estimated_print_time_start_offset_s": 0.735945
+        },
+        {
+          "counts": -275097,
+          "estimated_print_time_end_offset_s": 0.772638,
+          "estimated_print_time_start_offset_s": 0.761353
+        },
+        {
+          "counts": -275452,
+          "estimated_print_time_end_offset_s": 0.79705,
+          "estimated_print_time_start_offset_s": 0.785746
+        },
+        {
+          "counts": -274554,
+          "estimated_print_time_end_offset_s": 0.823989,
+          "estimated_print_time_start_offset_s": 0.811281
+        },
+        {
+          "counts": -275751,
+          "estimated_print_time_end_offset_s": 0.84728,
+          "estimated_print_time_start_offset_s": 0.836174
+        },
+        {
+          "counts": -273863,
+          "estimated_print_time_end_offset_s": 0.873128,
+          "estimated_print_time_start_offset_s": 0.861709
+        },
+        {
+          "counts": -274375,
+          "estimated_print_time_end_offset_s": 0.898494,
+          "estimated_print_time_start_offset_s": 0.886348
+        },
+        {
+          "counts": -273098,
+          "estimated_print_time_end_offset_s": 0.923984,
+          "estimated_print_time_start_offset_s": 0.911231
+        },
+        {
+          "counts": -274542,
+          "estimated_print_time_end_offset_s": 0.947811,
+          "estimated_print_time_start_offset_s": 0.93626
+        },
+        {
+          "counts": -274657,
+          "estimated_print_time_end_offset_s": 0.972062,
+          "estimated_print_time_start_offset_s": 0.960772
+        },
+        {
+          "counts": -273812,
+          "estimated_print_time_end_offset_s": 0.99904,
+          "estimated_print_time_start_offset_s": 0.986126
+        },
+        {
+          "counts": -274283,
+          "estimated_print_time_end_offset_s": 1.023478,
+          "estimated_print_time_start_offset_s": 1.010604
+        },
+        {
+          "counts": -273796,
+          "estimated_print_time_end_offset_s": 1.048998,
+          "estimated_print_time_start_offset_s": 1.036274
+        },
+        {
+          "counts": -274152,
+          "estimated_print_time_end_offset_s": 1.072494,
+          "estimated_print_time_start_offset_s": 1.061169
+        },
+        {
+          "counts": -272485,
+          "estimated_print_time_end_offset_s": 1.09763,
+          "estimated_print_time_start_offset_s": 1.0857
+        },
+        {
+          "counts": -272737,
+          "estimated_print_time_end_offset_s": 1.124382,
+          "estimated_print_time_start_offset_s": 1.111893
+        },
+        {
+          "counts": -273311,
+          "estimated_print_time_end_offset_s": 1.188308,
+          "estimated_print_time_start_offset_s": 1.136172
+        },
+        {
+          "counts": -272465,
+          "estimated_print_time_end_offset_s": 1.201502,
+          "estimated_print_time_start_offset_s": 1.188674
+        },
+        {
+          "counts": -271243,
+          "estimated_print_time_end_offset_s": 1.21393,
+          "estimated_print_time_start_offset_s": 1.201719
+        },
+        {
+          "counts": -271603,
+          "estimated_print_time_end_offset_s": 1.226307,
+          "estimated_print_time_start_offset_s": 1.21412
+        },
+        {
+          "counts": -270928,
+          "estimated_print_time_end_offset_s": 1.250478,
+          "estimated_print_time_start_offset_s": 1.237606
+        },
+        {
+          "counts": -270037,
+          "estimated_print_time_end_offset_s": 1.272995,
+          "estimated_print_time_start_offset_s": 1.260953
+        },
+        {
+          "counts": -268256,
+          "estimated_print_time_end_offset_s": 1.299038,
+          "estimated_print_time_start_offset_s": 1.286184
+        },
+        {
+          "counts": -269399,
+          "estimated_print_time_end_offset_s": 1.32383,
+          "estimated_print_time_start_offset_s": 1.312128
+        },
+        {
+          "counts": -267384,
+          "estimated_print_time_end_offset_s": 1.34743,
+          "estimated_print_time_start_offset_s": 1.336056
+        },
+        {
+          "counts": -267630,
+          "estimated_print_time_end_offset_s": 1.372923,
+          "estimated_print_time_start_offset_s": 1.361709
+        },
+        {
+          "counts": -268173,
+          "estimated_print_time_end_offset_s": 1.397347,
+          "estimated_print_time_start_offset_s": 1.38611
+        },
+        {
+          "counts": -267656,
+          "estimated_print_time_end_offset_s": 1.424091,
+          "estimated_print_time_start_offset_s": 1.412263
+        },
+        {
+          "counts": -268695,
+          "estimated_print_time_end_offset_s": 1.448133,
+          "estimated_print_time_start_offset_s": 1.436339
+        },
+        {
+          "counts": -267173,
+          "estimated_print_time_end_offset_s": 1.472704,
+          "estimated_print_time_start_offset_s": 1.461157
+        },
+        {
+          "counts": -267576,
+          "estimated_print_time_end_offset_s": 1.49719,
+          "estimated_print_time_start_offset_s": 1.485852
+        },
+        {
+          "counts": -264688,
+          "estimated_print_time_end_offset_s": 1.523156,
+          "estimated_print_time_start_offset_s": 1.511417
+        },
+        {
+          "counts": -265088,
+          "estimated_print_time_end_offset_s": 1.549308,
+          "estimated_print_time_start_offset_s": 1.536628
+        },
+        {
+          "counts": -264649,
+          "estimated_print_time_end_offset_s": 1.573323,
+          "estimated_print_time_start_offset_s": 1.561502
+        },
+        {
+          "counts": -266347,
+          "estimated_print_time_end_offset_s": 1.599742,
+          "estimated_print_time_start_offset_s": 1.586605
+        },
+        {
+          "counts": -265934,
+          "estimated_print_time_end_offset_s": 1.623017,
+          "estimated_print_time_start_offset_s": 1.611034
+        },
+        {
+          "counts": -264922,
+          "estimated_print_time_end_offset_s": 1.647994,
+          "estimated_print_time_start_offset_s": 1.636178
+        },
+        {
+          "counts": -265557,
+          "estimated_print_time_end_offset_s": 1.672887,
+          "estimated_print_time_start_offset_s": 1.661204
+        },
+        {
+          "counts": -266410,
+          "estimated_print_time_end_offset_s": 1.697502,
+          "estimated_print_time_start_offset_s": 1.686032
+        },
+        {
+          "counts": -265374,
+          "estimated_print_time_end_offset_s": 1.723516,
+          "estimated_print_time_start_offset_s": 1.7118
+        },
+        {
+          "counts": -266127,
+          "estimated_print_time_end_offset_s": 1.747534,
+          "estimated_print_time_start_offset_s": 1.736266
+        },
+        {
+          "counts": -264813,
+          "estimated_print_time_end_offset_s": 1.772155,
+          "estimated_print_time_start_offset_s": 1.760717
+        },
+        {
+          "counts": -265241,
+          "estimated_print_time_end_offset_s": 1.79766,
+          "estimated_print_time_start_offset_s": 1.786312
+        },
+        {
+          "counts": -266141,
+          "estimated_print_time_end_offset_s": 1.822155,
+          "estimated_print_time_start_offset_s": 1.810921
+        },
+        {
+          "counts": -265647,
+          "estimated_print_time_end_offset_s": 1.849077,
+          "estimated_print_time_start_offset_s": 1.835829
+        },
+        {
+          "counts": -266551,
+          "estimated_print_time_end_offset_s": 1.872458,
+          "estimated_print_time_start_offset_s": 1.861041
+        },
+        {
+          "counts": -266017,
+          "estimated_print_time_end_offset_s": 1.898444,
+          "estimated_print_time_start_offset_s": 1.886887
+        },
+        {
+          "counts": -266561,
+          "estimated_print_time_end_offset_s": 1.923195,
+          "estimated_print_time_start_offset_s": 1.911679
+        },
+        {
+          "counts": -266320,
+          "estimated_print_time_end_offset_s": 1.949318,
+          "estimated_print_time_start_offset_s": 1.936696
+        },
+        {
+          "counts": -265123,
+          "estimated_print_time_end_offset_s": 1.972424,
+          "estimated_print_time_start_offset_s": 1.961325
+        },
+        {
+          "counts": -264620,
+          "estimated_print_time_end_offset_s": 1.997928,
+          "estimated_print_time_start_offset_s": 1.986542
+        }
+      ],
+      "samples_received": 93,
+      "smooth_time_before_after": [
+        0.03,
+        0.03
+      ],
+      "transition_offsets_s": {
+        "end": 1.5,
+        "fall": 1.2,
+        "fall_end": 1.35,
+        "rise": 0.65,
+        "rise_end": 0.8,
+        "start": 0.5
+      },
+      "unique_values": 93,
+      "window_summary": {
+        "baseline": {
+          "count": 26,
+          "mad_counts": 838.5,
+          "max_counts": -260965,
+          "median_counts": -262486.5,
+          "min_counts": -273018
+        },
+        "high": {
+          "count": 15,
+          "mad_counts": 679,
+          "max_counts": -272465,
+          "median_counts": -273863,
+          "min_counts": -275751
+        },
+        "high_delta_counts": -11376.5,
+        "ramp_down": {
+          "count": 7,
+          "mad_counts": 1206,
+          "max_counts": -267384,
+          "median_counts": -270037,
+          "min_counts": -271603
+        },
+        "ramp_up": {
+          "count": 6,
+          "mad_counts": 379.0,
+          "max_counts": -272711,
+          "median_counts": -275274.5,
+          "min_counts": -275836
+        },
+        "recovery": {
+          "count": 26,
+          "mad_counts": 890.0,
+          "max_counts": -264620,
+          "median_counts": -266072.0,
+          "min_counts": -268695
+        },
+        "recovery_delta_counts": -3585.5
+      },
+      "xyz_unchanged": true
+    },
+    {
+      "acceleration_mm_s2": 20.0,
+      "achieved_mean_start_rate_hz": 40.042,
+      "call_duration_max_ms": 27.4,
+      "call_duration_median_ms": 11.806,
+      "capture_duration_s": 1.85,
+      "id": "k020-a20-r1",
+      "k": 0.02,
+      "logical_e_before_after": [
+        0.0,
+        0.0
+      ],
+      "pressure_advance_before_after": [
+        0.032,
+        0.032
+      ],
+      "pulse_distance_mm": 1.1375,
+      "sample_start_gap_max_ms": 61.746,
+      "sample_start_span_s": 2.147727,
+      "samples": [
+        {
+          "counts": -265534,
+          "estimated_print_time_end_offset_s": -0.295682,
+          "estimated_print_time_start_offset_s": -0.310614
+        },
+        {
+          "counts": -265940,
+          "estimated_print_time_end_offset_s": -0.274409,
+          "estimated_print_time_start_offset_s": -0.288265
+        },
+        {
+          "counts": -265329,
+          "estimated_print_time_end_offset_s": -0.252239,
+          "estimated_print_time_start_offset_s": -0.263562
+        },
+        {
+          "counts": -265717,
+          "estimated_print_time_end_offset_s": -0.22783,
+          "estimated_print_time_start_offset_s": -0.239123
+        },
+        {
+          "counts": -263758,
+          "estimated_print_time_end_offset_s": -0.201105,
+          "estimated_print_time_start_offset_s": -0.213332
+        },
+        {
+          "counts": -265661,
+          "estimated_print_time_end_offset_s": -0.177547,
+          "estimated_print_time_start_offset_s": -0.188983
+        },
+        {
+          "counts": -265497,
+          "estimated_print_time_end_offset_s": -0.152707,
+          "estimated_print_time_start_offset_s": -0.164034
+        },
+        {
+          "counts": -265826,
+          "estimated_print_time_end_offset_s": -0.126682,
+          "estimated_print_time_start_offset_s": -0.138598
+        },
+        {
+          "counts": -266079,
+          "estimated_print_time_end_offset_s": -0.102166,
+          "estimated_print_time_start_offset_s": -0.113062
+        },
+        {
+          "counts": -264909,
+          "estimated_print_time_end_offset_s": -0.076269,
+          "estimated_print_time_start_offset_s": -0.088785
+        },
+        {
+          "counts": -265753,
+          "estimated_print_time_end_offset_s": -0.051801,
+          "estimated_print_time_start_offset_s": -0.063101
+        },
+        {
+          "counts": -264314,
+          "estimated_print_time_end_offset_s": -0.027348,
+          "estimated_print_time_start_offset_s": -0.03873
+        },
+        {
+          "counts": -265208,
+          "estimated_print_time_end_offset_s": -0.000844,
+          "estimated_print_time_start_offset_s": -0.01412
+        },
+        {
+          "counts": -265409,
+          "estimated_print_time_end_offset_s": 0.023591,
+          "estimated_print_time_start_offset_s": 0.01188
+        },
+        {
+          "counts": -265024,
+          "estimated_print_time_end_offset_s": 0.048061,
+          "estimated_print_time_start_offset_s": 0.037006
+        },
+        {
+          "counts": -265866,
+          "estimated_print_time_end_offset_s": 0.071821,
+          "estimated_print_time_start_offset_s": 0.060545
+        },
+        {
+          "counts": -265881,
+          "estimated_print_time_end_offset_s": 0.097383,
+          "estimated_print_time_start_offset_s": 0.086221
+        },
+        {
+          "counts": -265617,
+          "estimated_print_time_end_offset_s": 0.124814,
+          "estimated_print_time_start_offset_s": 0.112742
+        },
+        {
+          "counts": -266128,
+          "estimated_print_time_end_offset_s": 0.147765,
+          "estimated_print_time_start_offset_s": 0.136437
+        },
+        {
+          "counts": -265654,
+          "estimated_print_time_end_offset_s": 0.17224,
+          "estimated_print_time_start_offset_s": 0.160818
+        },
+        {
+          "counts": -265790,
+          "estimated_print_time_end_offset_s": 0.199886,
+          "estimated_print_time_start_offset_s": 0.185764
+        },
+        {
+          "counts": -264991,
+          "estimated_print_time_end_offset_s": 0.228874,
+          "estimated_print_time_start_offset_s": 0.214826
+        },
+        {
+          "counts": -265515,
+          "estimated_print_time_end_offset_s": 0.248616,
+          "estimated_print_time_start_offset_s": 0.236157
+        },
+        {
+          "counts": -265530,
+          "estimated_print_time_end_offset_s": 0.288413,
+          "estimated_print_time_start_offset_s": 0.261012
+        },
+        {
+          "counts": -265393,
+          "estimated_print_time_end_offset_s": 0.303991,
+          "estimated_print_time_start_offset_s": 0.289163
+        },
+        {
+          "counts": -264696,
+          "estimated_print_time_end_offset_s": 0.326702,
+          "estimated_print_time_start_offset_s": 0.312342
+        },
+        {
+          "counts": -265798,
+          "estimated_print_time_end_offset_s": 0.355689,
+          "estimated_print_time_start_offset_s": 0.336135
+        },
+        {
+          "counts": -265232,
+          "estimated_print_time_end_offset_s": 0.374799,
+          "estimated_print_time_start_offset_s": 0.361155
+        },
+        {
+          "counts": -264676,
+          "estimated_print_time_end_offset_s": 0.39757,
+          "estimated_print_time_start_offset_s": 0.386113
+        },
+        {
+          "counts": -265253,
+          "estimated_print_time_end_offset_s": 0.422945,
+          "estimated_print_time_start_offset_s": 0.410825
+        },
+        {
+          "counts": -265188,
+          "estimated_print_time_end_offset_s": 0.447677,
+          "estimated_print_time_start_offset_s": 0.436223
+        },
+        {
+          "counts": -265605,
+          "estimated_print_time_end_offset_s": 0.471739,
+          "estimated_print_time_start_offset_s": 0.460874
+        },
+        {
+          "counts": -266353,
+          "estimated_print_time_end_offset_s": 0.497688,
+          "estimated_print_time_start_offset_s": 0.485872
+        },
+        {
+          "counts": -273288,
+          "estimated_print_time_end_offset_s": 0.522182,
+          "estimated_print_time_start_offset_s": 0.510902
+        },
+        {
+          "counts": -274067,
+          "estimated_print_time_end_offset_s": 0.551137,
+          "estimated_print_time_start_offset_s": 0.535921
+        },
+        {
+          "counts": -274690,
+          "estimated_print_time_end_offset_s": 0.573066,
+          "estimated_print_time_start_offset_s": 0.561214
+        },
+        {
+          "counts": -273284,
+          "estimated_print_time_end_offset_s": 0.641927,
+          "estimated_print_time_start_offset_s": 0.621678
+        },
+        {
+          "counts": -274510,
+          "estimated_print_time_end_offset_s": 0.66241,
+          "estimated_print_time_start_offset_s": 0.642133
+        },
+        {
+          "counts": -275963,
+          "estimated_print_time_end_offset_s": 0.676304,
+          "estimated_print_time_start_offset_s": 0.662699
+        },
+        {
+          "counts": -277757,
+          "estimated_print_time_end_offset_s": 0.688836,
+          "estimated_print_time_start_offset_s": 0.677224
+        },
+        {
+          "counts": -278347,
+          "estimated_print_time_end_offset_s": 0.70112,
+          "estimated_print_time_start_offset_s": 0.688983
+        },
+        {
+          "counts": -277276,
+          "estimated_print_time_end_offset_s": 0.723656,
+          "estimated_print_time_start_offset_s": 0.710957
+        },
+        {
+          "counts": -276230,
+          "estimated_print_time_end_offset_s": 0.747785,
+          "estimated_print_time_start_offset_s": 0.735768
+        },
+        {
+          "counts": -277216,
+          "estimated_print_time_end_offset_s": 0.77422,
+          "estimated_print_time_start_offset_s": 0.760934
+        },
+        {
+          "counts": -276087,
+          "estimated_print_time_end_offset_s": 0.798063,
+          "estimated_print_time_start_offset_s": 0.786256
+        },
+        {
+          "counts": -275885,
+          "estimated_print_time_end_offset_s": 0.822987,
+          "estimated_print_time_start_offset_s": 0.811427
+        },
+        {
+          "counts": -275989,
+          "estimated_print_time_end_offset_s": 0.847821,
+          "estimated_print_time_start_offset_s": 0.836145
+        },
+        {
+          "counts": -275869,
+          "estimated_print_time_end_offset_s": 0.875986,
+          "estimated_print_time_start_offset_s": 0.860945
+        },
+        {
+          "counts": -274771,
+          "estimated_print_time_end_offset_s": 0.897574,
+          "estimated_print_time_start_offset_s": 0.886706
+        },
+        {
+          "counts": -275695,
+          "estimated_print_time_end_offset_s": 0.923818,
+          "estimated_print_time_start_offset_s": 0.911812
+        },
+        {
+          "counts": -274949,
+          "estimated_print_time_end_offset_s": 0.949377,
+          "estimated_print_time_start_offset_s": 0.93667
+        },
+        {
+          "counts": -275072,
+          "estimated_print_time_end_offset_s": 0.972948,
+          "estimated_print_time_start_offset_s": 0.960776
+        },
+        {
+          "counts": -275173,
+          "estimated_print_time_end_offset_s": 0.997869,
+          "estimated_print_time_start_offset_s": 0.986061
+        },
+        {
+          "counts": -275146,
+          "estimated_print_time_end_offset_s": 1.024025,
+          "estimated_print_time_start_offset_s": 1.011058
+        },
+        {
+          "counts": -273740,
+          "estimated_print_time_end_offset_s": 1.047575,
+          "estimated_print_time_start_offset_s": 1.036158
+        },
+        {
+          "counts": -274263,
+          "estimated_print_time_end_offset_s": 1.072158,
+          "estimated_print_time_start_offset_s": 1.060863
+        },
+        {
+          "counts": -273790,
+          "estimated_print_time_end_offset_s": 1.099783,
+          "estimated_print_time_start_offset_s": 1.088421
+        },
+        {
+          "counts": -274583,
+          "estimated_print_time_end_offset_s": 1.122139,
+          "estimated_print_time_start_offset_s": 1.110903
+        },
+        {
+          "counts": -272882,
+          "estimated_print_time_end_offset_s": 1.147975,
+          "estimated_print_time_start_offset_s": 1.136261
+        },
+        {
+          "counts": -271771,
+          "estimated_print_time_end_offset_s": 1.172835,
+          "estimated_print_time_start_offset_s": 1.161258
+        },
+        {
+          "counts": -270519,
+          "estimated_print_time_end_offset_s": 1.197368,
+          "estimated_print_time_start_offset_s": 1.18597
+        },
+        {
+          "counts": -269856,
+          "estimated_print_time_end_offset_s": 1.223894,
+          "estimated_print_time_start_offset_s": 1.21187
+        },
+        {
+          "counts": -270443,
+          "estimated_print_time_end_offset_s": 1.248397,
+          "estimated_print_time_start_offset_s": 1.237039
+        },
+        {
+          "counts": -269121,
+          "estimated_print_time_end_offset_s": 1.273287,
+          "estimated_print_time_start_offset_s": 1.261635
+        },
+        {
+          "counts": -269744,
+          "estimated_print_time_end_offset_s": 1.298791,
+          "estimated_print_time_start_offset_s": 1.287624
+        },
+        {
+          "counts": -270454,
+          "estimated_print_time_end_offset_s": 1.322288,
+          "estimated_print_time_start_offset_s": 1.310971
+        },
+        {
+          "counts": -269871,
+          "estimated_print_time_end_offset_s": 1.349135,
+          "estimated_print_time_start_offset_s": 1.336473
+        },
+        {
+          "counts": -266191,
+          "estimated_print_time_end_offset_s": 1.372438,
+          "estimated_print_time_start_offset_s": 1.361244
+        },
+        {
+          "counts": -265718,
+          "estimated_print_time_end_offset_s": 1.397878,
+          "estimated_print_time_start_offset_s": 1.386565
+        },
+        {
+          "counts": -266366,
+          "estimated_print_time_end_offset_s": 1.422931,
+          "estimated_print_time_start_offset_s": 1.411066
+        },
+        {
+          "counts": -265684,
+          "estimated_print_time_end_offset_s": 1.450922,
+          "estimated_print_time_start_offset_s": 1.436164
+        },
+        {
+          "counts": -267143,
+          "estimated_print_time_end_offset_s": 1.473294,
+          "estimated_print_time_start_offset_s": 1.460935
+        },
+        {
+          "counts": -266511,
+          "estimated_print_time_end_offset_s": 1.497414,
+          "estimated_print_time_start_offset_s": 1.486229
+        },
+        {
+          "counts": -264900,
+          "estimated_print_time_end_offset_s": 1.522948,
+          "estimated_print_time_start_offset_s": 1.511684
+        },
+        {
+          "counts": -266544,
+          "estimated_print_time_end_offset_s": 1.550094,
+          "estimated_print_time_start_offset_s": 1.536776
+        },
+        {
+          "counts": -266482,
+          "estimated_print_time_end_offset_s": 1.572833,
+          "estimated_print_time_start_offset_s": 1.561569
+        },
+        {
+          "counts": -267237,
+          "estimated_print_time_end_offset_s": 1.637608,
+          "estimated_print_time_start_offset_s": 1.623315
+        },
+        {
+          "counts": -266931,
+          "estimated_print_time_end_offset_s": 1.651083,
+          "estimated_print_time_start_offset_s": 1.637801
+        },
+        {
+          "counts": -267295,
+          "estimated_print_time_end_offset_s": 1.663338,
+          "estimated_print_time_start_offset_s": 1.651251
+        },
+        {
+          "counts": -266136,
+          "estimated_print_time_end_offset_s": 1.674927,
+          "estimated_print_time_start_offset_s": 1.663482
+        },
+        {
+          "counts": -266281,
+          "estimated_print_time_end_offset_s": 1.697958,
+          "estimated_print_time_start_offset_s": 1.686322
+        },
+        {
+          "counts": -266121,
+          "estimated_print_time_end_offset_s": 1.722574,
+          "estimated_print_time_start_offset_s": 1.710896
+        },
+        {
+          "counts": -267137,
+          "estimated_print_time_end_offset_s": 1.74791,
+          "estimated_print_time_start_offset_s": 1.736412
+        },
+        {
+          "counts": -267031,
+          "estimated_print_time_end_offset_s": 1.773188,
+          "estimated_print_time_start_offset_s": 1.761622
+        },
+        {
+          "counts": -266953,
+          "estimated_print_time_end_offset_s": 1.797985,
+          "estimated_print_time_start_offset_s": 1.786363
+        },
+        {
+          "counts": -266796,
+          "estimated_print_time_end_offset_s": 1.823884,
+          "estimated_print_time_start_offset_s": 1.811812
+        },
+        {
+          "counts": -267453,
+          "estimated_print_time_end_offset_s": 1.848971,
+          "estimated_print_time_start_offset_s": 1.837113
+        }
+      ],
+      "samples_received": 87,
+      "smooth_time_before_after": [
+        0.03,
+        0.03
+      ],
+      "transition_offsets_s": {
+        "end": 1.35,
+        "fall": 1.125,
+        "fall_end": 1.2,
+        "rise": 0.65,
+        "rise_end": 0.725,
+        "start": 0.5
+      },
+      "unique_values": 87,
+      "window_summary": {
+        "baseline": {
+          "count": 24,
+          "mad_counts": 368.5,
+          "max_counts": -264676,
+          "median_counts": -265611.0,
+          "min_counts": -274690
+        },
+        "high": {
+          "count": 16,
+          "mad_counts": 717.5,
+          "max_counts": -273740,
+          "median_counts": -275159.5,
+          "min_counts": -277216
+        },
+        "high_delta_counts": -9548.5,
+        "ramp_down": {
+          "count": 3,
+          "mad_counts": 1111,
+          "max_counts": -270519,
+          "median_counts": -271771,
+          "min_counts": -272882
+        },
+        "ramp_up": {
+          "count": 5,
+          "mad_counts": 1071,
+          "max_counts": -274510,
+          "median_counts": -277276,
+          "min_counts": -278347
+        },
+        "recovery": {
+          "count": 26,
+          "mad_counts": 618.5,
+          "max_counts": -264900,
+          "median_counts": -266942.0,
+          "min_counts": -270454
+        },
+        "recovery_delta_counts": -1331.0
+      },
+      "xyz_unchanged": true
+    },
+    {
+      "acceleration_mm_s2": 20.0,
+      "achieved_mean_start_rate_hz": 40.14,
+      "call_duration_max_ms": 56.424,
+      "call_duration_median_ms": 11.637,
+      "capture_duration_s": 1.85,
+      "id": "k020-a20-r2",
+      "k": 0.02,
+      "logical_e_before_after": [
+        0.0,
+        0.0
+      ],
+      "pressure_advance_before_after": [
+        0.032,
+        0.032
+      ],
+      "pulse_distance_mm": 1.1375,
+      "sample_start_gap_max_ms": 59.95,
+      "sample_start_span_s": 2.142489,
+      "samples": [
+        {
+          "counts": -267981,
+          "estimated_print_time_end_offset_s": -0.248752,
+          "estimated_print_time_start_offset_s": -0.305177
+        },
+        {
+          "counts": -268119,
+          "estimated_print_time_end_offset_s": -0.23572,
+          "estimated_print_time_start_offset_s": -0.248501
+        },
+        {
+          "counts": -268045,
+          "estimated_print_time_end_offset_s": -0.219307,
+          "estimated_print_time_start_offset_s": -0.235488
+        },
+        {
+          "counts": -266606,
+          "estimated_print_time_end_offset_s": -0.207619,
+          "estimated_print_time_start_offset_s": -0.219179
+        },
+        {
+          "counts": -267544,
+          "estimated_print_time_end_offset_s": -0.19487,
+          "estimated_print_time_start_offset_s": -0.207464
+        },
+        {
+          "counts": -266792,
+          "estimated_print_time_end_offset_s": -0.175473,
+          "estimated_print_time_start_offset_s": -0.188754
+        },
+        {
+          "counts": -266302,
+          "estimated_print_time_end_offset_s": -0.153081,
+          "estimated_print_time_start_offset_s": -0.164202
+        },
+        {
+          "counts": -268143,
+          "estimated_print_time_end_offset_s": -0.125916,
+          "estimated_print_time_start_offset_s": -0.138481
+        },
+        {
+          "counts": -267026,
+          "estimated_print_time_end_offset_s": -0.102474,
+          "estimated_print_time_start_offset_s": -0.114291
+        },
+        {
+          "counts": -267689,
+          "estimated_print_time_end_offset_s": -0.077111,
+          "estimated_print_time_start_offset_s": -0.089044
+        },
+        {
+          "counts": -267243,
+          "estimated_print_time_end_offset_s": -0.052214,
+          "estimated_print_time_start_offset_s": -0.063457
+        },
+        {
+          "counts": -267704,
+          "estimated_print_time_end_offset_s": -0.027485,
+          "estimated_print_time_start_offset_s": -0.039008
+        },
+        {
+          "counts": -268079,
+          "estimated_print_time_end_offset_s": -0.002291,
+          "estimated_print_time_start_offset_s": -0.013886
+        },
+        {
+          "counts": -267428,
+          "estimated_print_time_end_offset_s": 0.022262,
+          "estimated_print_time_start_offset_s": 0.011093
+        },
+        {
+          "counts": -267945,
+          "estimated_print_time_end_offset_s": 0.048413,
+          "estimated_print_time_start_offset_s": 0.036399
+        },
+        {
+          "counts": -267830,
+          "estimated_print_time_end_offset_s": 0.074683,
+          "estimated_print_time_start_offset_s": 0.061501
+        },
+        {
+          "counts": -267843,
+          "estimated_print_time_end_offset_s": 0.097736,
+          "estimated_print_time_start_offset_s": 0.086472
+        },
+        {
+          "counts": -266363,
+          "estimated_print_time_end_offset_s": 0.122625,
+          "estimated_print_time_start_offset_s": 0.110866
+        },
+        {
+          "counts": -267219,
+          "estimated_print_time_end_offset_s": 0.147109,
+          "estimated_print_time_start_offset_s": 0.135794
+        },
+        {
+          "counts": -266182,
+          "estimated_print_time_end_offset_s": 0.172605,
+          "estimated_print_time_start_offset_s": 0.161397
+        },
+        {
+          "counts": -266761,
+          "estimated_print_time_end_offset_s": 0.198271,
+          "estimated_print_time_start_offset_s": 0.186467
+        },
+        {
+          "counts": -266728,
+          "estimated_print_time_end_offset_s": 0.223017,
+          "estimated_print_time_start_offset_s": 0.211521
+        },
+        {
+          "counts": -268044,
+          "estimated_print_time_end_offset_s": 0.247392,
+          "estimated_print_time_start_offset_s": 0.236127
+        },
+        {
+          "counts": -267488,
+          "estimated_print_time_end_offset_s": 0.272708,
+          "estimated_print_time_start_offset_s": 0.261499
+        },
+        {
+          "counts": -267165,
+          "estimated_print_time_end_offset_s": 0.302238,
+          "estimated_print_time_start_offset_s": 0.286689
+        },
+        {
+          "counts": -267322,
+          "estimated_print_time_end_offset_s": 0.322803,
+          "estimated_print_time_start_offset_s": 0.310954
+        },
+        {
+          "counts": -266875,
+          "estimated_print_time_end_offset_s": 0.349132,
+          "estimated_print_time_start_offset_s": 0.337209
+        },
+        {
+          "counts": -268057,
+          "estimated_print_time_end_offset_s": 0.373036,
+          "estimated_print_time_start_offset_s": 0.361399
+        },
+        {
+          "counts": -266199,
+          "estimated_print_time_end_offset_s": 0.397646,
+          "estimated_print_time_start_offset_s": 0.385899
+        },
+        {
+          "counts": -267474,
+          "estimated_print_time_end_offset_s": 0.422258,
+          "estimated_print_time_start_offset_s": 0.410698
+        },
+        {
+          "counts": -266544,
+          "estimated_print_time_end_offset_s": 0.448015,
+          "estimated_print_time_start_offset_s": 0.436408
+        },
+        {
+          "counts": -267787,
+          "estimated_print_time_end_offset_s": 0.472276,
+          "estimated_print_time_start_offset_s": 0.461071
+        },
+        {
+          "counts": -268270,
+          "estimated_print_time_end_offset_s": 0.498665,
+          "estimated_print_time_start_offset_s": 0.486172
+        },
+        {
+          "counts": -273914,
+          "estimated_print_time_end_offset_s": 0.523795,
+          "estimated_print_time_start_offset_s": 0.511911
+        },
+        {
+          "counts": -274040,
+          "estimated_print_time_end_offset_s": 0.547702,
+          "estimated_print_time_start_offset_s": 0.535991
+        },
+        {
+          "counts": -274183,
+          "estimated_print_time_end_offset_s": 0.571988,
+          "estimated_print_time_start_offset_s": 0.560796
+        },
+        {
+          "counts": -274515,
+          "estimated_print_time_end_offset_s": 0.597614,
+          "estimated_print_time_start_offset_s": 0.586254
+        },
+        {
+          "counts": -273996,
+          "estimated_print_time_end_offset_s": 0.622876,
+          "estimated_print_time_start_offset_s": 0.611153
+        },
+        {
+          "counts": -273261,
+          "estimated_print_time_end_offset_s": 0.647615,
+          "estimated_print_time_start_offset_s": 0.635981
+        },
+        {
+          "counts": -275280,
+          "estimated_print_time_end_offset_s": 0.6719,
+          "estimated_print_time_start_offset_s": 0.660757
+        },
+        {
+          "counts": -276079,
+          "estimated_print_time_end_offset_s": 0.699136,
+          "estimated_print_time_start_offset_s": 0.686125
+        },
+        {
+          "counts": -277840,
+          "estimated_print_time_end_offset_s": 0.754907,
+          "estimated_print_time_start_offset_s": 0.742925
+        },
+        {
+          "counts": -276763,
+          "estimated_print_time_end_offset_s": 0.766816,
+          "estimated_print_time_start_offset_s": 0.755083
+        },
+        {
+          "counts": -278100,
+          "estimated_print_time_end_offset_s": 0.777964,
+          "estimated_print_time_start_offset_s": 0.766937
+        },
+        {
+          "counts": -277855,
+          "estimated_print_time_end_offset_s": 0.797178,
+          "estimated_print_time_start_offset_s": 0.785749
+        },
+        {
+          "counts": -276763,
+          "estimated_print_time_end_offset_s": 0.825281,
+          "estimated_print_time_start_offset_s": 0.811403
+        },
+        {
+          "counts": -278218,
+          "estimated_print_time_end_offset_s": 0.847562,
+          "estimated_print_time_start_offset_s": 0.836213
+        },
+        {
+          "counts": -276534,
+          "estimated_print_time_end_offset_s": 0.872288,
+          "estimated_print_time_start_offset_s": 0.860769
+        },
+        {
+          "counts": -277794,
+          "estimated_print_time_end_offset_s": 0.898662,
+          "estimated_print_time_start_offset_s": 0.886601
+        },
+        {
+          "counts": -278838,
+          "estimated_print_time_end_offset_s": 0.922877,
+          "estimated_print_time_start_offset_s": 0.911216
+        },
+        {
+          "counts": -278136,
+          "estimated_print_time_end_offset_s": 0.947502,
+          "estimated_print_time_start_offset_s": 0.936091
+        },
+        {
+          "counts": -277968,
+          "estimated_print_time_end_offset_s": 0.971866,
+          "estimated_print_time_start_offset_s": 0.96067
+        },
+        {
+          "counts": -278250,
+          "estimated_print_time_end_offset_s": 0.998098,
+          "estimated_print_time_start_offset_s": 0.986901
+        },
+        {
+          "counts": -277253,
+          "estimated_print_time_end_offset_s": 1.022773,
+          "estimated_print_time_start_offset_s": 1.011291
+        },
+        {
+          "counts": -276075,
+          "estimated_print_time_end_offset_s": 1.049119,
+          "estimated_print_time_start_offset_s": 1.036584
+        },
+        {
+          "counts": -277144,
+          "estimated_print_time_end_offset_s": 1.072002,
+          "estimated_print_time_start_offset_s": 1.060788
+        },
+        {
+          "counts": -276664,
+          "estimated_print_time_end_offset_s": 1.100703,
+          "estimated_print_time_start_offset_s": 1.088265
+        },
+        {
+          "counts": -275895,
+          "estimated_print_time_end_offset_s": 1.122974,
+          "estimated_print_time_start_offset_s": 1.111134
+        },
+        {
+          "counts": -275255,
+          "estimated_print_time_end_offset_s": 1.148624,
+          "estimated_print_time_start_offset_s": 1.137172
+        },
+        {
+          "counts": -274385,
+          "estimated_print_time_end_offset_s": 1.171883,
+          "estimated_print_time_start_offset_s": 1.160708
+        },
+        {
+          "counts": -272379,
+          "estimated_print_time_end_offset_s": 1.198114,
+          "estimated_print_time_start_offset_s": 1.185953
+        },
+        {
+          "counts": -272002,
+          "estimated_print_time_end_offset_s": 1.222974,
+          "estimated_print_time_start_offset_s": 1.210926
+        },
+        {
+          "counts": -270740,
+          "estimated_print_time_end_offset_s": 1.248135,
+          "estimated_print_time_start_offset_s": 1.236145
+        },
+        {
+          "counts": -271670,
+          "estimated_print_time_end_offset_s": 1.272659,
+          "estimated_print_time_start_offset_s": 1.261382
+        },
+        {
+          "counts": -272615,
+          "estimated_print_time_end_offset_s": 1.297578,
+          "estimated_print_time_start_offset_s": 1.285822
+        },
+        {
+          "counts": -271883,
+          "estimated_print_time_end_offset_s": 1.322572,
+          "estimated_print_time_start_offset_s": 1.311459
+        },
+        {
+          "counts": -272088,
+          "estimated_print_time_end_offset_s": 1.348597,
+          "estimated_print_time_start_offset_s": 1.33582
+        },
+        {
+          "counts": -265127,
+          "estimated_print_time_end_offset_s": 1.373021,
+          "estimated_print_time_start_offset_s": 1.361079
+        },
+        {
+          "counts": -266589,
+          "estimated_print_time_end_offset_s": 1.397517,
+          "estimated_print_time_start_offset_s": 1.386161
+        },
+        {
+          "counts": -267490,
+          "estimated_print_time_end_offset_s": 1.422214,
+          "estimated_print_time_start_offset_s": 1.410743
+        },
+        {
+          "counts": -267448,
+          "estimated_print_time_end_offset_s": 1.447705,
+          "estimated_print_time_start_offset_s": 1.436485
+        },
+        {
+          "counts": -267113,
+          "estimated_print_time_end_offset_s": 1.471975,
+          "estimated_print_time_start_offset_s": 1.460791
+        },
+        {
+          "counts": -266950,
+          "estimated_print_time_end_offset_s": 1.498719,
+          "estimated_print_time_start_offset_s": 1.486166
+        },
+        {
+          "counts": -266413,
+          "estimated_print_time_end_offset_s": 1.523172,
+          "estimated_print_time_start_offset_s": 1.510991
+        },
+        {
+          "counts": -266620,
+          "estimated_print_time_end_offset_s": 1.548022,
+          "estimated_print_time_start_offset_s": 1.536422
+        },
+        {
+          "counts": -267681,
+          "estimated_print_time_end_offset_s": 1.573096,
+          "estimated_print_time_start_offset_s": 1.561378
+        },
+        {
+          "counts": -266008,
+          "estimated_print_time_end_offset_s": 1.597688,
+          "estimated_print_time_start_offset_s": 1.586305
+        },
+        {
+          "counts": -266581,
+          "estimated_print_time_end_offset_s": 1.622659,
+          "estimated_print_time_start_offset_s": 1.610907
+        },
+        {
+          "counts": -266843,
+          "estimated_print_time_end_offset_s": 1.647433,
+          "estimated_print_time_start_offset_s": 1.635768
+        },
+        {
+          "counts": -266610,
+          "estimated_print_time_end_offset_s": 1.673166,
+          "estimated_print_time_start_offset_s": 1.661618
+        },
+        {
+          "counts": -266004,
+          "estimated_print_time_end_offset_s": 1.699502,
+          "estimated_print_time_start_offset_s": 1.686753
+        },
+        {
+          "counts": -266669,
+          "estimated_print_time_end_offset_s": 1.762087,
+          "estimated_print_time_start_offset_s": 1.746703
+        },
+        {
+          "counts": -266862,
+          "estimated_print_time_end_offset_s": 1.773595,
+          "estimated_print_time_start_offset_s": 1.762224
+        },
+        {
+          "counts": -266719,
+          "estimated_print_time_end_offset_s": 1.785015,
+          "estimated_print_time_start_offset_s": 1.773768
+        },
+        {
+          "counts": -266501,
+          "estimated_print_time_end_offset_s": 1.79648,
+          "estimated_print_time_start_offset_s": 1.785173
+        },
+        {
+          "counts": -266952,
+          "estimated_print_time_end_offset_s": 1.828298,
+          "estimated_print_time_start_offset_s": 1.811675
+        },
+        {
+          "counts": -266658,
+          "estimated_print_time_end_offset_s": 1.848723,
+          "estimated_print_time_start_offset_s": 1.837312
+        }
+      ],
+      "samples_received": 87,
+      "smooth_time_before_after": [
+        0.03,
+        0.03
+      ],
+      "transition_offsets_s": {
+        "end": 1.35,
+        "fall": 1.125,
+        "fall_end": 1.2,
+        "rise": 0.65,
+        "rise_end": 0.725,
+        "start": 0.5
+      },
+      "unique_values": 86,
+      "window_summary": {
+        "baseline": {
+          "count": 26,
+          "mad_counts": 697.5,
+          "max_counts": -266182,
+          "median_counts": -267637.5,
+          "min_counts": -274515
+        },
+        "high": {
+          "count": 17,
+          "mad_counts": 541,
+          "max_counts": -275895,
+          "median_counts": -277794,
+          "min_counts": -278838
+        },
+        "high_delta_counts": -10156.5,
+        "ramp_down": {
+          "count": 3,
+          "mad_counts": 870,
+          "max_counts": -272379,
+          "median_counts": -274385,
+          "min_counts": -275255
+        },
+        "ramp_up": {
+          "count": 2,
+          "mad_counts": 399.5,
+          "max_counts": -275280,
+          "median_counts": -275679.5,
+          "min_counts": -276079
+        },
+        "recovery": {
+          "count": 26,
+          "mad_counts": 395.5,
+          "max_counts": -265127,
+          "median_counts": -266852.5,
+          "min_counts": -272615
+        },
+        "recovery_delta_counts": 785.0
+      },
+      "xyz_unchanged": true
+    }
+  ],
+  "schema": 1
+}

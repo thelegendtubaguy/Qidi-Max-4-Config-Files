@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.07.26.10"
+  version: "26.07.26.12"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -39,6 +39,8 @@ package:
     - "26.07.26.8"
     - "26.07.26.9"
     - "26.07.26.10"
+    - "26.07.26.11"
+    - "26.07.26.12"
 
 firmware:
   supported:
@@ -101,7 +103,7 @@ install:
     - id: tltg_pa_calibration_extra
       source: "klipper/extras/tltg_pa_calibration.py"
       destination: "klippy/extras/tltg_pa_calibration.py"
-      sha256: "942f4b5f2f12fd53e7be7694d2dd123e62e3d9aaae220550fbef2bf98de73c35"
+      sha256: "79b4c849b169a059148b9c2171c21692ef6dbd3b9f90b52a14c351335ebb4994"
 
   ensure_lines:
     - id: include_optimized_macros

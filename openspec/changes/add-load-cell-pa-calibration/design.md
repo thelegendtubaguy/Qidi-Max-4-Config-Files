@@ -8,7 +8,7 @@ The installed QIDI Klipper `extruder.py` marks normal G-code pressure advance el
 
 The force-response method drives repeated low/high/low extrusion-rate transitions while testing pressure advance values. Klipper's PA transform changes extruder velocity by approximately `K × nominal E acceleration`, so acceleration is a controlled excitation input rather than an omitted variable. Insufficient PA produces delayed rounded transitions; excessive PA produces overshoot and deceleration undershoot. The result is an estimate that requires printer-specific validation, not a guaranteed material property.
 
-`reverse-engineering.md` records the analyzed host/MCU artifacts, hashes, protocol commands, homing lifecycle, firmware disassembly, rejected bulk path, live scheduled-read measurements, invalid-read evidence, Reddit claims, installer restart caveat, and remaining hardware gaps. `evidence/direct-read-cadence.json` preserves sanitized per-sample counts and timing from the 100, 250, 500, 800, and 1000 Hz idle captures.
+`reverse-engineering.md` records the analyzed host/MCU artifacts, hashes, protocol commands, homing lifecycle, firmware disassembly, rejected bulk path, live scheduled-read measurements, invalid-read evidence, Reddit claims, installer restart caveat, and remaining hardware gaps. `evidence/direct-read-cadence.json` preserves sanitized scheduled-read and idle origin-cache cadence. `evidence/origin-cache-under-force.json` preserves bounded host-call intervals and load-cell counts from stationary `0.4 mm` PLA pulses at `215 °C`.
 
 ## Goals / Non-Goals
 
@@ -70,7 +70,7 @@ The analyzed toolhead MCU firmware reports protocol version `02.02.01.08` and do
 
 The stock `query_cs1237_config_r` command is also unsuitable as a compatibility fence. Static firmware analysis shows that it drives ten SCLK transitions without recovered serialization against periodic acquisition. A controlled idle sequence with no direct reads returned `60`, `60`, and `255`; another campaign produced duplicate direct responses followed by a non-`60` preflight result. Re-reading configuration before and after capture can therefore disturb or misframe the same sensor state it is intended to verify.
 
-Capture ownership, handler cleanup, unique response identities, and firmware-restart shutdown guards remain implemented and tested, but public calibration and all developer sensor commands are hard-disabled. `CS1237.read_origin_data()` is the remaining acquisition candidate: it calls only the GPIO-passive cached-SRAM response handler and returned live values in repeated 40 and 50 Hz idle tests. Its conversion age, host-stall alignment, under-force behavior, and post-capture probe preservation remain unvalidated. `query_cs1237_begin(config=60)` is a stock reconfiguration command, not an accepted restoration path; its cache, freshness, zero-state, and post-restart behavior remain unvalidated.
+Capture ownership, handler cleanup, unique response identities, and firmware-restart shutdown guards remain implemented and tested, but public calibration and all developer sensor commands are hard-disabled. `CS1237.read_origin_data()` is the remaining acquisition candidate: it calls only the GPIO-passive cached-SRAM response handler and returned live values in repeated 40 and 50 Hz idle tests. Four controlled captures requesting 40 Hz polling overlapped stationary `0.4 mm` PLA pulses at `215 °C`; synchronous stalls created local call-start gaps despite approximately 40 Hz mean cadence, and every run produced a force-correlated low/high/low response, preserved XYZ and logical E, restored PA and smooth time, retained QIDI Box `slot4`, and was followed by successful stock `G28`. Conversion age, deterministic placement inside each host call interval, and cycle repeatability remain unvalidated. `query_cs1237_begin(config=60)` is a stock reconfiguration command, not an accepted restoration path; its cache, freshness, zero-state, and post-restart behavior remain unvalidated.
 
 Alternative: replace the stock probe with upstream Klipper `[load_cell]`. Rejected because it changes vendor homing and probing behavior and would require revalidating the printer's primary Z safety mechanism.
 
@@ -78,8 +78,8 @@ Alternative: replace the stock probe with upstream Klipper `[load_cell]`. Reject
 
 The Python extra is divided into four small units:
 
-1. A QIDI CS1237 adapter polls the GPIO-passive `read_origin_data()` cache at a bounded rate, validates homing ownership, and records host call timing without configuration reads.
-2. A capture coordinator records bounded values and the exact directly queued extruder-trapq transition schedule in Klipper print-time coordinates; hardware validation must bound cached-conversion age before assigning a conversion time inside each synchronous call interval.
+1. A QIDI CS1237 adapter polls the GPIO-passive `read_origin_data()` cache at no more than 50 Hz, validates homing ownership before and after capture, records host and estimated print-time call intervals, and never reads configuration.
+2. A capture coordinator owns the sensor with a process-local exclusive token, records bounded values and the exact directly queued extruder-trapq transition schedule in Klipper print-time coordinates, releases ownership on every path, and forces shutdown if post-capture homing state or ownership cannot be verified. Hardware validation must still bound cached-conversion age before assigning a conversion time inside each synchronous call interval.
 3. A pure analysis module compares the normalized force trace with the known acceleration-defined E-flow waveform and computes transition tracking error, rise/fall delay, overshoot, deceleration undershoot, signed recovery area, recovery error, plateau slope, settling, and repeatability.
 4. A printer-facing state machine enforces preconditions, queues motion, restores state, and emits results.
 
@@ -152,7 +152,7 @@ The response metrics, three-component objective, signed-area corroboration, acce
 - **Waste extrusion accumulates while the flap is closed** → Run `CLEAR_FLUSH` after no more than two measured pulses, cap total extrusion, and run final `CLEAR_OOZE` plus `CLEAR_FLUSH` cleanup.
 - **QIDI screen and Klipper nozzle sizes diverge** → Require explicit `NOZZLE` and report it with the result rather than selecting either stored value implicitly.
 - **The optimum force response does not match the best printed PA** → Label output as a candidate, never persist it, compare against conventional printed tests across representative materials, and tune gates from recorded evidence.
-- **Scheduled direct reads may load the constrained printer host or return invalid excursions** → Use no more than 500 Hz, select the production rate only from repeated under-load evidence, bound duration and queued command count, yield to the reactor, avoid raw console logging, and reject captures with incomplete timing coverage or invalid-read contamination.
+- **Synchronous origin-cache reads may stall the constrained printer host or obscure conversion time** → Cap characterization at 50 Hz and 250 calls, record each call interval, yield to the reactor, reject incomplete or non-monotonic timing, and keep candidate reporting disabled until cached-conversion age and force-safe invalid-read handling are bounded.
 - **Cleanup fails after a partial start** → Make acquisition stop and state restoration idempotent, register shutdown/cancel handling, and test every state-machine transition with injected failures.
 - **Installer mutation outside `config/` complicates rollback** → Track the extra as a hashed managed external file with preimage restoration and include installer-core integration tests.
 
@@ -168,9 +168,9 @@ Rollback removes the optimized macro/config section, removes the exact managed P
 
 ## Open Questions
 
-- Which request rate at or below 500 Hz provides repeatable complete coverage while stationary extruder trapq work is active?
-- What bounds the age of the cached ADC conversion returned by `query_cs1237_read`, and what conversion-time error can be assigned relative to Klipper print time?
-- Which raw/timing invariant distinguishes invalid direct reads from real force transitions without weakening fail-closed behavior?
+- What static or physical invariant bounds the age of the cached ADC conversion returned by `read_origin_data()`, and what conversion-time interval can be assigned relative to Klipper print time?
+- Does 40 Hz origin polling provide repeatable transition metrics across the required K and acceleration coverage despite observed host-call stalls up to approximately 56 ms under force?
+- Which raw/timing invariant distinguishes invalid sensor values from real force transitions without weakening fail-closed behavior?
 - What low/high flow rates, segment duration, K bounds, and refinement step produce clean transitions without excessive purge volume on the Max 4 hotend?
 - What low/high filament-feed schedule is safe and measurable for each required `NOZZLE` value (`0.2`, `0.4`, `0.6`, and `0.8`)?
 - Is one or two measured pulses per `CLEAR_FLUSH` cycle the best balance between signal repeatability, flap clearing, and calibration duration?
