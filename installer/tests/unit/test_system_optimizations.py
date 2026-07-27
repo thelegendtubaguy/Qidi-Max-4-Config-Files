@@ -6,8 +6,10 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from dataclasses import replace
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from installer.runtime import messages
 from installer.runtime.auto_update import LOCK_HELD_ENV
@@ -23,9 +25,14 @@ from installer.runtime.system_optimizations import (
     MOONRAKER_METADATA_PATCH_MARKER,
     MOONRAKER_METADATA_OPERATION,
     SystemOptimizationError,
+    SystemOptimizationRecoveryError,
+    _apply_rockchip,
     _apply_service,
     _patched_moonraker_metadata_text,
+    _recover_pending_rockchip_journal,
+    _root_mount_options,
     _restore_file_preimage,
+    recover_pending_system_optimization,
     _restore_service,
     _service_state,
     _validate_archive_members,
@@ -56,6 +63,350 @@ class SystemOptimizationTests(unittest.TestCase):
         self.assertEqual(system.qidiclient_static_gifs.archive, "system/qidiclient-static-gifs.tar.gz")
         self.assertEqual(system.moonraker_metadata_3mf.file, "/home/qidi/moonraker/moonraker/components/file_manager/metadata.py")
         self.assertEqual(system.services.disable, ("xl2tpd", "bluetooth"))
+
+    def test_defective_rockchip_shape_is_repaired_and_owned(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+
+        spec = manifest.system_optimizations.rockchip_root_sync
+        self.assertEqual((system_root / spec.dropin.lstrip("/")).read_text(encoding="utf-8"), spec.dropin_content)
+        self.assertNotIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+        self.assertTrue(paths.host_reboot_marker_path.exists())
+        state = load_installed_state(printer_root / manifest.state_file)
+        preimage = state.system_ledger["restore_preimages"]["rockchip_root_sync"]
+        self.assertFalse(preimage["dropin"]["exists"])
+        self.assertIn("sync", preimage["mount_options"])
+
+    def test_exact_desired_unowned_rockchip_dropin_remains_unowned(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+        dropin = system_root / spec.dropin.lstrip("/")
+        dropin.parent.mkdir(parents=True)
+        dropin.write_text(spec.dropin_content, encoding="utf-8")
+
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+
+        state = load_installed_state(printer_root / manifest.state_file)
+        self.assertNotIn("rockchip_root_sync", state.system_ledger["restore_preimages"])
+        self.assertFalse(paths.host_reboot_marker_path.exists())
+        self.assertNotIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+
+    def test_conflicting_symlink_and_corrected_rockchip_shapes_are_preserved(self):
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+        for shape in ("conflict", "symlink", "corrected", "commented"):
+            with self.subTest(shape=shape):
+                printer_root, system_root = _runtime_with_fake_system()
+                env = _rockchip_env(printer_root, system_root)
+                paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+                _write_defective_rockchip(system_root)
+                dropin = system_root / spec.dropin.lstrip("/")
+                if shape == "conflict":
+                    dropin.parent.mkdir(parents=True)
+                    dropin.write_text("[Service]\nExecStart=/bin/false\n", encoding="utf-8")
+                elif shape == "symlink":
+                    dropin.parent.mkdir(parents=True)
+                    target = system_root / "operator-override.conf"
+                    target.write_text("operator\n", encoding="utf-8")
+                    dropin.symlink_to(target)
+                elif shape == "corrected":
+                    (system_root / spec.script.lstrip("/")).write_text("#!/bin/bash -e\ncorrected\n", encoding="utf-8")
+                else:
+                    (system_root / spec.script.lstrip("/")).write_text(
+                        "#!/bin/bash -e\n"
+                        "# rk3308\n"
+                        '# CHIPNAME="rk3208"\n'
+                        "# mount -o remount,sync /\n"
+                        "# install_packages\n"
+                        "# touch /usr/local/first_boot_flag\n",
+                        encoding="utf-8",
+                    )
+
+                before = dropin.readlink() if dropin.is_symlink() else dropin.read_bytes() if dropin.exists() else None
+                run_install(
+                    paths,
+                    manifest,
+                    PlainReporter(io.StringIO()),
+                    input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                    urlopen=moonraker_urlopen(),
+                    environ=env,
+                )
+
+                after = dropin.readlink() if dropin.is_symlink() else dropin.read_bytes() if dropin.exists() else None
+                self.assertEqual(after, before)
+                self.assertIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+                self.assertFalse(paths.host_reboot_marker_path.exists())
+
+    def test_owned_rockchip_drift_reconciles_without_replacing_first_preimage(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+        prompts = "yes\nyes\nno\nno\nno\n"
+        run_install(paths, manifest, PlainReporter(io.StringIO()), input_stream=io.StringIO(prompts), urlopen=moonraker_urlopen(), environ=env)
+        first = load_installed_state(printer_root / manifest.state_file).system_ledger["restore_preimages"]["rockchip_root_sync"]
+        (system_root / spec.dropin.lstrip("/")).unlink()
+        (system_root / "mounts/root.options").write_text("rw,relatime,sync\n", encoding="utf-8")
+
+        run_install(paths, manifest, PlainReporter(io.StringIO()), input_stream=io.StringIO(prompts), urlopen=moonraker_urlopen(), environ=env)
+
+        state = load_installed_state(printer_root / manifest.state_file)
+        self.assertEqual(state.system_ledger["restore_preimages"]["rockchip_root_sync"], first)
+        self.assertTrue((system_root / spec.dropin.lstrip("/")).exists())
+        self.assertNotIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+
+    def test_rockchip_live_command_failures_are_propagated_at_each_mutation_stage(self):
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = replace(
+            manifest.system_optimizations.rockchip_root_sync,
+            dropin=str(REPO_ROOT / ".tmp-rockchip-command-test" / "override.conf"),
+        )
+        for stage, needle in (
+            ("atomic-install", "install"),
+            ("daemon-reload", "daemon-reload"),
+            ("unit-start", "start"),
+            ("remount", "remount,rw,async"),
+        ):
+            with self.subTest(stage=stage):
+                commands = []
+
+                def run(command, **kwargs):
+                    commands.append(command)
+                    return subprocess.CompletedProcess(
+                        command,
+                        1 if any(needle in str(part) for part in command) else 0,
+                    )
+
+                with self.assertRaises(Exception):
+                    _apply_rockchip(
+                        spec=spec,
+                        root=Path("/"),
+                        sudo_password="password",
+                        run=run,
+                        classification="defective_stock",
+                    )
+                self.assertTrue(any(any(needle in str(part) for part in command) for command in commands))
+
+    def test_rockchip_postflight_failure_rolls_back_dropin_mount_and_marker(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+
+        with patch("installer.runtime.system_optimizations._postflight_rockchip", side_effect=SystemOptimizationError("injected")):
+            run_install(
+                paths,
+                manifest,
+                PlainReporter(io.StringIO()),
+                input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                urlopen=moonraker_urlopen(),
+                environ=env,
+            )
+
+        self.assertFalse((system_root / spec.dropin.lstrip("/")).exists())
+        self.assertIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+        self.assertFalse(paths.host_reboot_marker_path.exists())
+        state = load_installed_state(printer_root / manifest.state_file)
+        self.assertNotIn("rockchip_root_sync", state.system_ledger["restore_preimages"])
+
+    def test_uninstall_restores_owned_rockchip_state_and_preserves_operator_drift(self):
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        compatibility = load_supported_upgrade_sources(REPO_ROOT / "installer/supported_upgrade_sources.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+        for drift in (False, True):
+            with self.subTest(drift=drift):
+                printer_root, system_root = _runtime_with_fake_system()
+                _write_defective_rockchip(system_root)
+                env = _rockchip_env(printer_root, system_root)
+                paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+                run_install(
+                    paths,
+                    manifest,
+                    PlainReporter(io.StringIO()),
+                    input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                    urlopen=moonraker_urlopen(),
+                    environ=env,
+                )
+                dropin = system_root / spec.dropin.lstrip("/")
+                if drift:
+                    dropin.write_text("[Service]\nExecStart=/bin/false\n", encoding="utf-8")
+
+                run_uninstall(
+                    paths,
+                    manifest,
+                    compatibility,
+                    PlainReporter(io.StringIO()),
+                    input_stream=io.StringIO("yes\nyes\nno\n"),
+                    urlopen=moonraker_urlopen(),
+                    environ=env,
+                )
+
+                if drift:
+                    self.assertEqual(dropin.read_text(encoding="utf-8"), "[Service]\nExecStart=/bin/false\n")
+                    self.assertTrue(paths.host_reboot_marker_path.exists())
+                else:
+                    self.assertFalse(dropin.exists())
+                    self.assertIn("sync", _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+                    self.assertFalse(paths.host_reboot_marker_path.exists())
+
+    def test_rockchip_journal_persists_full_preimage_until_state_write(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+
+        with patch("installer.runtime.system_optimizations.write_installed_state", side_effect=OSError("state write failed")):
+            with self.assertRaises(OSError):
+                run_install(
+                    paths,
+                    manifest,
+                    PlainReporter(io.StringIO()),
+                    input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                    urlopen=moonraker_urlopen(),
+                    environ=env,
+                )
+
+        journal_path = printer_root / ".tltg_optimized_system_journal.json"
+        journal = json.loads(journal_path.read_text(encoding="utf-8"))
+        self.assertEqual(journal["operation"], "rockchip_root_sync")
+        self.assertIn("dropin", journal["preimage"])
+        self.assertIn("mount_options", journal["preimage"])
+        self.assertEqual(journal_path.stat().st_mode & 0o777, 0o600)
+
+        tampered = json.loads(json.dumps(journal))
+        tampered["preimage"]["dropin"]["path"] = "/etc/passwd"
+        journal_path.write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaises(SystemOptimizationRecoveryError):
+            recover_pending_system_optimization(
+                paths=paths,
+                manifest=manifest,
+                reporter=PlainReporter(io.StringIO()),
+                input_stream=None,
+                environ=env,
+            )
+        journal_path.write_text(json.dumps(journal), encoding="utf-8")
+        journal_path.chmod(0o600)
+
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+        self.assertFalse(journal_path.exists())
+        self.assertNotIn(
+            "sync",
+            _root_mount_options(
+                spec=manifest.system_optimizations.rockchip_root_sync,
+                root=system_root,
+                run=subprocess.run,
+            ),
+        )
+
+    def test_committed_rockchip_journal_is_cleared_without_rollback(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        with patch("installer.runtime.system_optimizations._clear_committed_rockchip_journal"):
+            run_install(
+                paths,
+                manifest,
+                PlainReporter(io.StringIO()),
+                input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                urlopen=moonraker_urlopen(),
+                environ=env,
+            )
+        state = load_installed_state(printer_root / manifest.state_file)
+        journal_path = printer_root / ".tltg_optimized_system_journal.json"
+        dropin = system_root / manifest.system_optimizations.rockchip_root_sync.dropin.lstrip("/")
+
+        _recover_pending_rockchip_journal(
+            paths=paths,
+            root=system_root,
+            sudo_password=None,
+            run=subprocess.run,
+            ledger=state.system_ledger,
+            spec=manifest.system_optimizations.rockchip_root_sync,
+        )
+
+        self.assertFalse(journal_path.exists())
+        self.assertTrue(dropin.exists())
+        self.assertNotIn(
+            "sync",
+            _root_mount_options(
+                spec=manifest.system_optimizations.rockchip_root_sync,
+                root=system_root,
+                run=subprocess.run,
+            ),
+        )
+
+    def test_rockchip_rollback_failure_is_hard_and_retains_journal(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+
+        with patch(
+            "installer.runtime.system_optimizations._postflight_rockchip",
+            side_effect=SystemOptimizationError("injected postflight"),
+        ), patch(
+            "installer.runtime.system_optimizations._restore_preimage_map",
+            side_effect=OSError("injected rollback"),
+        ):
+            with self.assertRaises(SystemOptimizationRecoveryError):
+                run_install(
+                    paths,
+                    manifest,
+                    PlainReporter(io.StringIO()),
+                    input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+                    urlopen=moonraker_urlopen(),
+                    environ=env,
+                )
+
+        self.assertTrue((printer_root / ".tltg_optimized_system_journal.json").exists())
+
+    def test_root_mount_sync_detection_uses_exact_tokens(self):
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        spec = manifest.system_optimizations.rockchip_root_sync
+        root = Path(tempfile.mkdtemp(prefix="mount-token-root-"))
+        state = root / "mounts/root.options"
+        state.parent.mkdir(parents=True)
+        for text, expected in (("rw,async,relatime\n", False), ("rw,nosync,relatime\n", False), ("rw,sync,relatime\n", True)):
+            with self.subTest(text=text):
+                state.write_text(text, encoding="utf-8")
+                self.assertEqual("sync" in _root_mount_options(spec=spec, root=root, run=subprocess.run), expected)
 
     def test_moonraker_3mf_patch_preserves_plate_1_behavior(self):
         metadata = _run_patched_moonraker_extract(1)
@@ -461,6 +812,69 @@ class SystemOptimizationTests(unittest.TestCase):
         updated = load_installed_state(state_path)
         self.assertIn("service_bluetooth", updated.system_ledger["restore_preimages"])
 
+    def test_auto_update_enabled_policy_applies_rockchip_and_records_checksum_bound_marker(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=io.StringIO("yes\nyes\nno\nno\nno\n"),
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+        _write_defective_rockchip(system_root)
+        auto_state = printer_root / "config/tltg_optimized_auto_update_state.json"
+        auto_state.write_text(json.dumps({"latest_checksum": "a" * 64}), encoding="utf-8")
+        env[LOCK_HELD_ENV] = "1"
+
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=None,
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+
+        marker = json.loads(paths.host_reboot_marker_path.read_text(encoding="utf-8"))
+        self.assertEqual(marker["source"], "auto_update_child")
+        self.assertEqual(marker["auto_update_checksum_before"], "a" * 64)
+        self.assertTrue((system_root / manifest.system_optimizations.rockchip_root_sync.dropin.lstrip("/")).exists())
+
+    def test_auto_update_disabled_policy_preserves_defective_rockchip_state(self):
+        printer_root, system_root = _runtime_with_fake_system()
+        _write_defective_rockchip(system_root)
+        env = _rockchip_env(printer_root, system_root)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        manifest = load_manifest(REPO_ROOT / "installer/package.yaml")
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=io.StringIO("yes\nno\nno\n"),
+            urlopen=moonraker_urlopen(),
+            environ=env,
+            system_options=SystemOptimizationCliOptions(skip_system_optimizations=True),
+        )
+        env[LOCK_HELD_ENV] = "1"
+
+        run_install(
+            paths,
+            manifest,
+            PlainReporter(io.StringIO()),
+            input_stream=None,
+            urlopen=moonraker_urlopen(),
+            environ=env,
+        )
+
+        spec = manifest.system_optimizations.rockchip_root_sync
+        self.assertFalse((system_root / spec.dropin.lstrip("/")).exists())
+        self.assertTrue("sync" in _root_mount_options(spec=spec, root=system_root, run=subprocess.run))
+        self.assertFalse(paths.host_reboot_marker_path.exists())
+
     def test_real_root_file_restore_replaces_current_target_symlink(self):
         printer_root = copy_base_runtime()
         paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(printer_root, moonraker_url="http://moonraker.invalid"))
@@ -731,6 +1145,31 @@ def _env(printer_root: Path, system_root: Path) -> dict[str, str]:
     env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
     env[SYSTEM_ROOT_ENV] = str(system_root)
     return env
+
+
+def _rockchip_env(printer_root: Path, system_root: Path) -> dict[str, str]:
+    env = _env(printer_root, system_root)
+    boot_id = printer_root / "boot-id"
+    boot_id.write_text("boot-one\n", encoding="utf-8")
+    env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+    return env
+
+
+def _write_defective_rockchip(system_root: Path) -> None:
+    unit = system_root / "lib/systemd/system/rockchip.service"
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text("[Service]\nExecStart=/etc/init.d/rockchip.sh\n", encoding="utf-8")
+    script = system_root / "etc/init.d/rockchip.sh"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        "#!/bin/bash -e\n"
+        "rk3308\n"
+        'CHIPNAME="rk3208"\n'
+        "mount -o remount,sync /\n"
+        "install_packages\n"
+        "touch /usr/local/first_boot_flag\n",
+        encoding="utf-8",
+    )
 
 
 def _write_fake_service(

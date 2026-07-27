@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+from contextlib import redirect_stderr
 import unittest
 from unittest.mock import call, patch
 
 from installer.runtime import klipper_cfg
-from installer.runtime.auto_update import AutoUpdateRunResult
+from installer.runtime.auto_update import AutoUpdateRunResult, state_path
 from installer.runtime.backup import create_config_backup
 from installer.runtime.errors import LockAcquisitionError
+from installer.runtime.host_reboot import write_host_reboot_marker
 from installer.runtime.cli import main, resolve_runtime_paths
 from installer.runtime.manifest import load_manifest
 from installer.runtime.naming import INSTALL_BACKUP_LABEL_PREFIX, UNINSTALL_BACKUP_LABEL_PREFIX
@@ -25,15 +27,16 @@ class CliTests(unittest.TestCase):
         fluidd_path = printer_root / "config/fluidd.cfg"
         fluidd_path.unlink(missing_ok=True)
         fluidd_path.symlink_to(fluidd_target)
+        backup_label = f"{INSTALL_BACKUP_LABEL_PREFIX}-01.01.06.03-26.07.13.1-20260726T000000Z"
         backup_zip = create_config_backup(
             printer_data_root=printer_root,
             source_directory="config",
-            backup_label="recorded-backup",
+            backup_label=backup_label,
         )
         sentinel = printer_root / ".tltg_optimized_recovery_required"
         sentinel.write_text(
             "error: write failed\n"
-            f"backup_label: recorded-backup\n"
+            f"backup_label: {backup_label}\n"
             f"backup_zip_path: {backup_zip}\n",
             encoding="utf-8",
         )
@@ -63,6 +66,58 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(sentinel.exists())
         self.assertIn("Recovery sentinel cleared.", stream.getvalue())
+
+    def test_clear_recovery_sentinel_rejects_current_archive_without_external_manifest(self):
+        printer_root = copy_base_runtime()
+        backup_label = f"{INSTALL_BACKUP_LABEL_PREFIX}-01.01.06.03-26.07.26.1-20260726T000000Z"
+        backup_zip = create_config_backup(
+            printer_data_root=printer_root,
+            source_directory="config",
+            backup_label=backup_label,
+        )
+        sentinel = printer_root / ".tltg_optimized_recovery_required"
+        sentinel.write_text(
+            "error: write failed\n"
+            f"backup_label: {backup_label}\n"
+            f"backup_zip_path: {backup_zip}\n",
+            encoding="utf-8",
+        )
+
+        stream = io.StringIO()
+        rc = main(
+            ["clear-recovery-sentinel"],
+            stream=stream,
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url="http://127.0.0.1:9/unused"),
+        )
+        self.assertEqual(rc, 1)
+        self.assertTrue(sentinel.exists())
+        self.assertIn("external source metadata", stream.getvalue())
+
+    def test_pending_system_transaction_recovers_before_auto_update_release_check(self):
+        printer_root = copy_base_runtime()
+        events = []
+
+        def recover(**kwargs):
+            events.append("recover")
+            return True
+
+        def update(**kwargs):
+            events.append("update")
+            return AutoUpdateRunResult(action="skipped-checksum-unavailable")
+
+        with patch("installer.runtime.cli.recover_pending_system_optimization", side_effect=recover), patch(
+            "installer.runtime.cli.run_auto_update_check", side_effect=update
+        ):
+            rc = main(
+                ["auto-update-check", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=build_env(printer_root, moonraker_url="http://moonraker.invalid"),
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(events, ["recover", "update"])
 
     def test_auto_update_check_honors_recovery_sentinel_before_running(self):
         printer_root = copy_base_runtime()
@@ -189,6 +244,167 @@ class CliTests(unittest.TestCase):
         auto_update_check.assert_called_once()
         reconcile.assert_called_once()
 
+    def test_already_current_auto_update_schedules_reboot_created_by_reconciliation(self):
+        printer_root = copy_base_runtime()
+        boot_id = printer_root / "boot-id"
+        boot_id.write_text("boot-one\n", encoding="utf-8")
+        env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
+        env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+
+        def reconcile(**kwargs):
+            write_host_reboot_marker(
+                paths,
+                package_version="1",
+                source="auto_update_reconcile",
+            )
+
+        with patch(
+            "installer.runtime.cli.run_auto_update_check",
+            return_value=AutoUpdateRunResult(action="already-current", checksum="b" * 64),
+        ), patch("installer.runtime.cli.safety.ensure_printer_idle"), patch(
+            "installer.runtime.cli._host_reboot_operation_current", return_value=True
+        ), patch(
+            "installer.runtime.cli.maybe_reconcile_system_optimizations", side_effect=reconcile
+        ), patch("installer.runtime.cli.maybe_schedule_host_reboot", return_value=True) as schedule:
+            rc = main(
+                ["auto-update-check", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=env,
+            )
+
+        self.assertEqual(rc, 0)
+        schedule.assert_called_once()
+
+    def test_auto_update_schedules_committed_pending_host_reboot_before_release_fetch(self):
+        printer_root = copy_base_runtime()
+        boot_id = printer_root / "boot-id"
+        boot_id.write_text("boot-one\n", encoding="utf-8")
+        env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
+        env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        state_path(paths).parent.mkdir(parents=True, exist_ok=True)
+        state_path(paths).write_text(json.dumps({"latest_checksum": "b" * 64}), encoding="utf-8")
+        write_host_reboot_marker(
+            paths,
+            package_version="1",
+            source="auto_update_child",
+            auto_update_checksum_before="a" * 64,
+        )
+
+        with patch("installer.runtime.cli.maybe_schedule_host_reboot", return_value=True) as schedule, patch(
+            "installer.runtime.cli._host_reboot_operation_current", return_value=True
+        ), patch("installer.runtime.cli.run_auto_update_check") as update:
+            rc = main(
+                ["auto-update-check", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=env,
+            )
+
+        self.assertEqual(rc, 0)
+        schedule.assert_called_once()
+        update.assert_not_called()
+
+    def test_auto_update_commits_checksum_before_scheduling_new_reboot_marker(self):
+        printer_root = copy_base_runtime()
+        boot_id = printer_root / "boot-id"
+        boot_id.write_text("boot-one\n", encoding="utf-8")
+        env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
+        env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        state_path(paths).parent.mkdir(parents=True, exist_ok=True)
+        state_path(paths).write_text(json.dumps({"latest_checksum": "a" * 64}), encoding="utf-8")
+        write_host_reboot_marker(
+            paths,
+            package_version="1",
+            source="auto_update_child",
+            auto_update_checksum_before="a" * 64,
+        )
+        observed = []
+
+        def update(**kwargs):
+            state_path(paths).write_text(json.dumps({"latest_checksum": "b" * 64}), encoding="utf-8")
+            return AutoUpdateRunResult(action="updated", checksum="b" * 64)
+
+        def schedule(*args, **kwargs):
+            observed.append(json.loads(state_path(paths).read_text(encoding="utf-8"))["latest_checksum"])
+            return True
+
+        with patch("installer.runtime.cli.run_auto_update_check", side_effect=update), patch(
+            "installer.runtime.cli._host_reboot_operation_current", return_value=True
+        ), patch("installer.runtime.cli.maybe_schedule_host_reboot", side_effect=schedule):
+            rc = main(
+                ["auto-update-check", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=env,
+            )
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(observed, ["b" * 64])
+
+    def test_auto_update_does_not_schedule_child_marker_when_checksum_is_uncommitted(self):
+        printer_root = copy_base_runtime()
+        boot_id = printer_root / "boot-id"
+        boot_id.write_text("boot-one\n", encoding="utf-8")
+        env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
+        env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        state_path(paths).parent.mkdir(parents=True, exist_ok=True)
+        state_path(paths).write_text(json.dumps({"latest_checksum": "a" * 64}), encoding="utf-8")
+        write_host_reboot_marker(
+            paths,
+            package_version="1",
+            source="auto_update_child",
+            auto_update_checksum_before="a" * 64,
+        )
+
+        with patch(
+            "installer.runtime.cli.run_auto_update_check",
+            return_value=AutoUpdateRunResult(action="skipped-checksum-unavailable"),
+        ), patch("installer.runtime.cli.maybe_schedule_host_reboot") as schedule:
+            rc = main(
+                ["auto-update-check", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=env,
+            )
+
+        self.assertEqual(rc, 0)
+        schedule.assert_not_called()
+        self.assertTrue(paths.host_reboot_marker_path.exists())
+
+    def test_dry_run_does_not_verify_or_clear_completed_host_reboot(self):
+        printer_root = copy_base_runtime()
+        boot_id = printer_root / "boot-id"
+        boot_id.write_text("boot-two\n", encoding="utf-8")
+        env = build_env(printer_root, moonraker_url="http://moonraker.invalid")
+        env["TLTG_OPTIMIZED_BOOT_ID_PATH"] = str(boot_id)
+        paths = resolve_runtime_paths(bundle_root=REPO_ROOT, environ=env)
+        boot_id.write_text("boot-one\n", encoding="utf-8")
+        write_host_reboot_marker(paths, package_version="1", source="interactive_install")
+        boot_id.write_text("boot-two\n", encoding="utf-8")
+        with patch("installer.runtime.cli.run_install"), patch(
+            "installer.runtime.cli._verify_completed_host_reboot"
+        ) as verify, patch("installer.runtime.cli.maybe_schedule_host_reboot") as schedule:
+            rc = main(
+                ["install", "--dry-run", "--plain", "--yes"],
+                stream=io.StringIO(),
+                bundle_root=REPO_ROOT,
+                environ=env,
+            )
+
+        self.assertEqual(rc, 0)
+        verify.assert_not_called()
+        schedule.assert_not_called()
+        self.assertTrue(paths.host_reboot_marker_path.exists())
+
+    def test_reboot_host_flag_is_restricted_to_install_and_uninstall(self):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["auto-update-check", "--reboot-host"], bundle_root=REPO_ROOT)
+
     def test_keyboard_interrupt_returns_130_without_traceback(self):
         printer_root = copy_base_runtime()
         stream = io.StringIO()
@@ -243,10 +459,11 @@ class CliTests(unittest.TestCase):
         auto_prompt_index = output.index(
             "Would you like to enable hourly automatic updates for the TLTG configs?"
         )
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(auto_prompt_index, restart_prompt_index)
         self.assertIn("Auto-updates not enabled.", output)
-        self.assertIn("Restart Klipper to apply changes.", output)
+        self.assertIn("Klipper service restart remains required", output)
+        self.assertTrue((printer_root / ".tltg_optimized_klipper_restart_required").exists())
 
     def test_install_repairs_existing_auto_updates_before_restart(self):
         printer_root = copy_base_runtime()
@@ -272,7 +489,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         repair_index = output.index("Auto-updates repaired.")
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(repair_index, restart_prompt_index)
         self.assertNotIn("Would you like to enable hourly automatic updates for the TLTG configs?", output)
 
@@ -332,9 +549,8 @@ class CliTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         output = stream.getvalue()
         disable_index = output.index("Auto-updates disabled.")
-        restart_prompt_index = output.index("Would you like me to restart Klipper to apply changes?")
+        restart_prompt_index = output.index("Managed Python source changed. Restart the Klipper service now to activate it?")
         self.assertLess(disable_index, restart_prompt_index)
-        self.assertIn("Restart Klipper to apply changes.", output)
 
     def test_install_demo_tui_returns_zero_without_writing(self):
         printer_root = copy_base_runtime()

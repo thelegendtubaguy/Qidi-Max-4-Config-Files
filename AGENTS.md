@@ -15,8 +15,9 @@
    - If a stock-mapped `config/` edit is unavoidable, call it out before editing and keep the diff minimal.
 5. Use QIDI stock baseline for comparisons: `https://github.com/thelegendtubaguy/Qidi-Max4-Defaults`.
 6. Keep OrcaSlicer and QIDI Studio G-code packs functionally aligned while preserving each slicer's syntax/placeholders. Exception: do not add polar cooler controls to `qidistudio_gcode/` unless explicitly asked.
-7. Update docs under `docs/` when behavior, assumptions, config flow, slicer flow, installer behavior, or integration details change.
+7. Update `openspec/specs/` when desired behavior changes, `openspec/contracts/` when a machine-checked path contract changes, and `openspec/observations/` when external/vendor evidence changes.
 8. Translate comments only unless explicitly told otherwise. Leave runtime/status/warning strings unchanged unless the affected string set is approved.
+9. Keep `README.md` operator-focused. Do not link internal agent references under `openspec/` from the README unless explicitly requested.
 
 ## Git workflow
 
@@ -30,42 +31,46 @@
 - Keep QIDI Studio `{if}`, `{else}`, and `{endif}` blocks on separate lines when editing conditionals; this is the tested style used by `qidistudio_gcode/*.gcode`.
 - Do not add direct polar cooler controls such as `M106 P4 ...` to `qidistudio_gcode/` unless explicitly requested and validated in QIDI Studio.
 
-## Required references
+## Required agent references
 
-- Stock-vs-optimized behavior: `docs/optimized_vs_stock.md`
-- Start/end/filament/mesh/slicer flow:
-  - `docs/gcode-paths/notes.md`
-  - `docs/gcode-paths/start-print.path.json`
-  - `docs/gcode-paths/generated/start-print.md`
-- QIDI Box, multi-color, `BOX_PRINT_START`, `box_extras`, or vendor box internals: `docs/qidi_box/box_print_start_notes.md`
-- Installer state, guarded patches, uninstall, recovery, restore helper, and auto-update:
-  - `docs/installer_runtime_contract.md`
-  - `docs/installer_restore_helper.md`
+- Desired installer, guarded patch, uninstall, recovery, restore, system optimization, and auto-update behavior:
+  - `openspec/specs/installer-lifecycle/spec.md`
+- Desired homing, mesh, start/end, filament, cooling, helper, and slicer behavior:
+  - `openspec/specs/optimized-printer-behavior/spec.md`
+- Start-print branch and command-order contract:
+  - `openspec/contracts/gcode-paths/start-print.path.json`
+  - `openspec/contracts/gcode-paths/generated/start-print.md`
+- External QIDI platform behavior:
+  - `openspec/observations/qidi-platform.md`
+- QIDI Box topology, commands, state, hardware, metadata, evidence limits, and unresolved behavior:
+  - `openspec/observations/qidi-box/topology-and-control.md`
+  - `openspec/observations/qidi-box/state-and-commands.md`
+  - `openspec/observations/qidi-box/hardware-and-protocols.md`
+  - `openspec/observations/qidi-box/material-metadata.md`
+  - `openspec/observations/qidi-box/evidence-and-open-questions.md`
 
-## Stock-vs-optimized prose
+## OpenSpec maintenance
 
-When editing `docs/optimized_vs_stock.md`:
-
-- Write functional behavior summaries, not raw config diffs. Prefer `Faster X/Y homing with reduced retractions` over listing each `[stepper_*] homing_*` value.
-- Group related settings by observed printer behavior: homing, Z tilt, bed mesh, filament cut, purge/prime, wipe/scrape, cancel, fan cooldown, QIDI Box handling, and slicer entrypoints.
-- Include source paths for traceability, but do not turn the doc into a manifest dump of options, hashes, or line-by-line macro deltas unless the exact value is the behavior.
-- Describe what changes for the operator or print sequence: skipped redundant homing, randomized Z probing point, reduced fixed waits, faster measurement travel, retained filament reuse, no-box scrape without purge, or safer cancel without movement.
-- Keep stock value details in `installer/package.yaml`, tests, or targeted implementation notes; use the stock-vs-optimized doc for behavior-level comparisons.
+- Specifications define repository-controlled desired behavior. Keep requirements behavioral and scenarios testable; use manifest/tests/code as the authority for exhaustive data that is not itself an operator-visible behavior.
+- Contracts define controlled machine-checked invariants that are too detailed for requirements. Generated contract views are outputs, not independent authority.
+- Observations define behavior outside repository control. Preserve evidence qualifiers from `openspec/observations/README.md`; do not convert harness/static inference into a product requirement or confirmed vendor behavior.
+- Update existing specifications and observations as current desired state/evidence. Do not create append-only history or duplicate the same rule across capabilities.
+- Describe functional behavior rather than raw diffs. Group related effects by operator or print-sequence behavior and include source paths only where they add traceability.
 
 ## Start-print path contract
 
 Before changing start-print behavior:
 
-1. Read `docs/gcode-paths/notes.md`, `docs/gcode-paths/start-print.path.json`, and `docs/gcode-paths/generated/start-print.md`.
-2. Update `docs/gcode-paths/start-print.path.json` when a branch-level invariant changes.
-3. Regenerate and check generated docs:
+1. Read `openspec/specs/optimized-printer-behavior/spec.md`, `openspec/contracts/gcode-paths/start-print.path.json`, and `openspec/contracts/gcode-paths/generated/start-print.md`.
+2. Update `openspec/contracts/gcode-paths/start-print.path.json` when a branch-level invariant changes.
+3. Regenerate and check generated views:
 
    ```bash
    python3 scripts/check_gcode_paths.py --write
    python3 scripts/check_gcode_paths.py
    ```
 
-4. Include regenerated `docs/gcode-paths/generated/start-print.md` and `docs/gcode-paths/generated/start-print.mmd` when they change.
+4. Include regenerated `openspec/contracts/gcode-paths/generated/start-print.md` and `.mmd` when they change.
 5. If generated views do not change after a concrete start-path command change, state why the command is not a branch-level invariant.
 
 Contracted start-path sources include `orcaslicer_gcode/start.gcode`, `qidistudio_gcode/start.gcode`, `config/box.cfg`, `config/klipper-macros-qd/*.cfg`, and `installer/klipper/tltg-optimized-macros/*.cfg`.
@@ -116,7 +121,12 @@ Contracted start-path sources include `orcaslicer_gcode/start.gcode`, `qidistudi
   python3 scripts/build_installer_bundle.py --output-dir dist --channel dev --build-id local --smoke-test
   ```
 
-- If changing start-print behavior, follow the start-print path contract above.
+- If changing start-print behavior or contract paths, follow the start-print path contract above.
+- If changing OpenSpec content, run:
+
+  ```bash
+  openspec validate --all --strict
+  ```
 
 ## Timing and terminology
 
@@ -124,5 +134,5 @@ Contracted start-path sources include `orcaslicer_gcode/start.gcode`, `qidistudi
 - For conservative speedups, trim fixed `G4` waits before changing motion speeds/accelerations.
 - Stock timing/behavior knobs remain in `config/klipper-macros-qd/globals.cfg`; optimized-only globals live in `installer/klipper/tltg-optimized-macros/globals.cfg`.
 - Treat apparently unused stock globals as externally consumed unless proven otherwise.
-- Use `purge` only for extrusion over the rear waste chute / wiper area.
+- Use `purge` only for extrusion over the rear waste chute/wiper area.
 - Use `prime line` for the front-of-bed extrusion in slicer start G-code.

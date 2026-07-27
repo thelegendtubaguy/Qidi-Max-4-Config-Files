@@ -24,9 +24,11 @@ from .backup import (
     utc_now,
 )
 from .ensure_lines import ensure_line_after
+from .compatibility import CompatibilityValidationError, load_supported_upgrade_sources
 from .errors import OperationCancelled, PreviousPackageValidationError, UnsupportedFirmwareError
 from .firmware import detect_firmware_version
-from .interaction import confirm_yes, maybe_restart_klipper
+from .host_reboot import arm_auto_update_reboot_followup
+from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
 from .legacy_manual_install import maybe_reset_legacy_manual_install
 from .fs_atomic import atomic_write_text
 from .manifest import active_patch_entries
@@ -50,6 +52,8 @@ from .models import (
     SystemOptimizationCliOptions,
 )
 from .path_safety import ensure_install_paths_safe
+from .source_patches import classify_install_source_patch, deploy_source_patch, validate_source_state
+from .process_restart import read_printer_info, write_restart_marker
 from .postflight import verify_install_postflight
 from .preflight import run_install_config_preflight, run_install_environment_preflight
 from .rollback import RollbackJournal
@@ -134,6 +138,23 @@ def run_install(
         detected_firmware=detected_firmware,
         prior_state=prior_state,
     )
+    if prior_state is not None:
+        try:
+            upgrade_sources = load_supported_upgrade_sources(
+                paths.installer_root / "supported_upgrade_sources.yaml"
+            )
+            validate_source_state(
+                prior_state,
+                manifest.install.source_patches,
+                upgrade_sources=upgrade_sources,
+                expected_firmware=detected_firmware,
+            )
+        except CompatibilityValidationError as exc:
+            raise PreviousPackageValidationError() from exc
+    source_results = tuple(
+        classify_install_source_patch(paths=paths, patch=patch, firmware=detected_firmware, prior_state=prior_state)
+        for patch in manifest.install.source_patches
+    )
 
     if not dry_run and not confirm_yes(
         reporter=reporter,
@@ -168,6 +189,11 @@ def run_install(
             printer_data_root=paths.printer_data_root,
             source_directory=manifest.backup.source_directory,
             backup_label=backup_label,
+            external_files=tuple(
+                (patch.id, patch.destination, paths.managed_klipper_root / patch.destination)
+                for patch in manifest.install.source_patches
+            ),
+            external_firmware=detected_firmware,
         )
         pruned_backups = prune_installer_backups(
             paths.printer_data_root,
@@ -234,6 +260,8 @@ def run_install(
         urlopen=urlopen,
         environ=env,
         system_options=system_options,
+        source_results=source_results,
+        run=run,
     )
 
 
@@ -297,6 +325,8 @@ def _execute_install(
     urlopen,
     environ: dict[str, str],
     system_options: SystemOptimizationCliOptions,
+    source_results=(),
+    run=subprocess.run,
 ) -> InstallResult:
     state_path = paths.printer_data_root / manifest.state_file
     journal = RollbackJournal(
@@ -316,6 +346,8 @@ def _execute_install(
         for touched in touched_files:
             journal.track_file(touched)
         journal.track_tree(paths.printer_data_root / manifest.managed_tree.destination)
+        for result in source_results:
+            journal.track_file(paths.managed_klipper_root / result.destination)
         reporter.debug(
             event="install.rollback.tracking",
             tracked_files=len(touched_files),
@@ -348,6 +380,26 @@ def _execute_install(
             install_counters["ensure_directories"][0] += 1
         reporter.emit_install_counters(**_freeze_counters(install_counters))
 
+        source_changes = tuple(result for result in source_results if result.classification != "noop_desired")
+        if source_changes:
+            process_id, _ = read_printer_info(paths.moonraker_url, urlopen=urlopen)
+            journal.track_file(paths.restart_marker_path)
+            journal.note_write()
+            write_restart_marker(
+                paths,
+                tuple(
+                    (entry.id, entry.destination, entry.desired_sha256)
+                    for result in source_changes
+                    if (entry := result.original) is not None
+                ),
+                operation="install",
+                process_id=process_id,
+            )
+        for patch, result in zip(manifest.install.source_patches, source_results):
+            if result.classification != "noop_desired":
+                journal.note_write()
+                deploy_source_patch(paths=paths, patch=patch, firmware=detected_firmware, result=result)
+
         mirror_tree(
             source_root=paths.installer_root / manifest.managed_tree.source,
             destination_root=paths.printer_data_root / manifest.managed_tree.destination,
@@ -361,7 +413,7 @@ def _execute_install(
             path = paths.printer_data_root / patch.file
             text = klipper_cfg.read_text(path)
             resolved = klipper_cfg.resolve_unique_option(text, patch.section, patch.option)
-            result = patches.classify_install_patch(resolved.value, patch, detected_firmware)
+            result = patches.classify_install_patch(resolved.value, patch, detected_firmware, prior_state)
             patch_results.append(result)
             if result.classification == patches.INSTALL_APPLIED:
                 new_text = klipper_cfg.set_option_value(
@@ -398,7 +450,10 @@ def _execute_install(
         reporter.emit_install_counters(**_freeze_counters(install_counters))
 
         verify_install_postflight(
-            paths=paths, manifest=manifest, patch_results=tuple(patch_results)
+            paths=paths,
+            manifest=manifest,
+            patch_results=tuple(patch_results),
+            detected_firmware=detected_firmware,
         )
         install_counters["postflight"][0] = 1
         reporter.emit_install_counters(**_freeze_counters(install_counters))
@@ -420,11 +475,16 @@ def _execute_install(
                     file=result.file,
                     section=result.section,
                     option=result.option,
-                    expected=result.expected,
+                    expected=_preserve_prior_expected(result, prior_state),
                     desired=result.desired,
                     install_result=result.classification,
                 )
                 for result in patch_results
+            ),
+            source_patches=tuple(
+                result.original
+                for result in source_results
+                if result.original is not None
             ),
             system_ledger=prior_state.system_ledger if prior_state is not None else None,
         )
@@ -443,6 +503,7 @@ def _execute_install(
             cli_options=system_options,
             environ=environ,
             auto_update_child=environ.get(LOCK_HELD_ENV) == "1",
+            run=run,
         )
     except Exception as exc:
         reporter.debug(
@@ -482,12 +543,21 @@ def _execute_install(
             environ=environ,
             urlopen=urlopen,
         )
-    maybe_restart_klipper(
-        reporter=reporter,
-        input_stream=input_stream,
-        moonraker_query_url=paths.moonraker_url,
-        urlopen=urlopen,
-    )
+    if paths.restart_marker_path.exists():
+        maybe_restart_pending_service(
+            paths=paths,
+            allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+            reporter=reporter,
+            input_stream=input_stream,
+            urlopen=urlopen,
+        )
+    else:
+        maybe_restart_klipper(
+            reporter=reporter,
+            input_stream=input_stream,
+            moonraker_query_url=paths.moonraker_url,
+            urlopen=urlopen,
+        )
     reporter.debug(
         event="install.complete",
         dry_run=False,
@@ -498,6 +568,13 @@ def _execute_install(
             [item for item in result.patch_results if item.classification == patches.USER_MODIFIED]
         ),
     )
+    if environ.get(LOCK_HELD_ENV) == "1":
+        arm_auto_update_reboot_followup(
+            paths,
+            reporter=reporter,
+            environ=environ,
+            run=run,
+        )
     return result
 
 
@@ -514,7 +591,7 @@ def _collect_install_patch_results(
         path = paths.printer_data_root / patch.file
         text = klipper_cfg.read_text(path)
         resolved = klipper_cfg.resolve_unique_option(text, patch.section, patch.option)
-        results.append(patches.classify_install_patch(resolved.value, patch, detected_firmware))
+        results.append(patches.classify_install_patch(resolved.value, patch, detected_firmware, prior_state))
     for patch in _active_install_section_patches(manifest, detected_firmware):
         path = paths.printer_data_root / patch.file
         text = klipper_cfg.read_text(path)
@@ -545,6 +622,14 @@ def _resolve_section_text_or_none(text: str, section: str) -> str | None:
             return None
         raise
 
+
+
+def _preserve_prior_expected(result, prior_state: InstalledState | None):
+    if prior_state is not None:
+        for entry in prior_state.patch_ledger:
+            if entry.target_tuple == (result.file, result.section, result.option):
+                return entry.expected
+    return result.expected
 
 
 def _preserve_prior_section_expected(result, prior_state: InstalledState | None):

@@ -7,12 +7,16 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import messages
+from .auto_update import current_auto_update_checksum
 from .errors import InstallerError
+from .fs_atomic import atomic_delete, atomic_write_text
+from .host_reboot import clear_host_reboot_marker, read_host_reboot_marker, write_host_reboot_marker
 from .interaction import confirm_yes, prompt_yes
 from .models import (
     InstalledState,
@@ -20,6 +24,7 @@ from .models import (
     RuntimePaths,
     SystemOptimizationCliOptions,
     SystemOptimizationsSpec,
+    SystemRockchipRootSyncSpec,
 )
 from .state_file import StateValidationError, load_installed_state, write_installed_state
 from .sudo import authenticate_sudo, run_sudo, run_sudo_ignore_failure, run_sudo_or_raise
@@ -49,6 +54,9 @@ SERVICE_DISABLED_ENABLED_STATES = frozenset({"disabled", "masked", "masked-runti
 SERVICE_DISABLED_ACTIVE_STATES = frozenset({"inactive"})
 MOONRAKER_METADATA_OPERATION = "moonraker_metadata_3mf_plate_index"
 MOONRAKER_METADATA_PATCH_MARKER = "def _3mf_selected_plate_index(xml_data: str) -> int:"
+ROCKCHIP_ROOT_SYNC_OPERATION = "rockchip_root_sync"
+ROCKCHIP_UNSUPPORTED = frozenset({"unsupported", "conflicting_dropin", "unsafe_path"})
+ROCKCHIP_ALREADY_CURRENT = frozenset({"already_current_owned", "already_current_unowned"})
 
 
 class SystemOptimizationError(InstallerError):
@@ -59,6 +67,10 @@ class SystemOptimizationApplyError(SystemOptimizationError):
     def __init__(self, message: str, ledger: dict[str, Any]):
         super().__init__(message)
         self.ledger = ledger
+
+
+class SystemOptimizationRecoveryError(SystemOptimizationError):
+    pass
 
 
 def maybe_apply_system_optimizations(
@@ -100,9 +112,12 @@ def maybe_apply_system_optimizations(
             reporter=reporter,
             input_stream=input_stream,
             environ=environ,
-            source="auto_update_reconcile" if auto_update_child else "yes_install" if input_stream is None else "interactive_install",
+            source="auto_update_child" if auto_update_child else "yes_install" if input_stream is None else "interactive_install",
+            package_version=manifest.package.version,
             run=run,
         )
+    except SystemOptimizationRecoveryError:
+        raise
     except SystemOptimizationApplyError as exc:
         ledger = exc.ledger
         reporter.line(f"{messages.SYSTEM_OPTIMIZATIONS_FAILED} {exc.message}")
@@ -110,7 +125,52 @@ def maybe_apply_system_optimizations(
         reporter.line(f"{messages.SYSTEM_OPTIMIZATIONS_FAILED} {getattr(exc, 'message', str(exc))}")
     updated = _replace_system_ledger(state, ledger)
     write_installed_state(state_path, updated)
+    _clear_committed_rockchip_journal(paths, ledger)
     return updated
+
+
+def recover_pending_system_optimization(
+    *,
+    paths: RuntimePaths,
+    manifest: Manifest,
+    reporter,
+    input_stream,
+    environ: dict[str, str],
+    run=subprocess.run,
+) -> bool:
+    if not _journal_path(paths).exists() or not _system_root_allowed(paths=paths, environ=environ):
+        return False
+    ledger: dict[str, Any] = {}
+    state_path = paths.printer_data_root / manifest.state_file
+    if state_path.exists():
+        try:
+            state = load_installed_state(state_path)
+        except StateValidationError:
+            state = None
+        if state is not None and isinstance(state.system_ledger, dict):
+            ledger = state.system_ledger
+    root = _system_root(environ)
+    sudo_password = None if _is_fake_root(root) else _sudo_password(
+        reporter=reporter,
+        input_stream=input_stream,
+        environ=environ,
+        run=run,
+    )
+    before = _journal_path(paths).exists()
+    if manifest.system_optimizations is None:
+        raise SystemOptimizationRecoveryError("Manifest has no Rockchip recovery specification.")
+    _recover_pending_rockchip_journal(
+        paths=paths,
+        root=root,
+        sudo_password=sudo_password,
+        run=run,
+        ledger=ledger,
+        spec=manifest.system_optimizations.rockchip_root_sync,
+    )
+    recovered = before and not _journal_path(paths).exists()
+    if recovered:
+        reporter.line("Pending Rockchip system transaction recovered.")
+    return recovered
 
 
 def maybe_reconcile_system_optimizations(
@@ -130,18 +190,37 @@ def maybe_reconcile_system_optimizations(
         state = load_installed_state(state_path)
     except StateValidationError:
         return
-    maybe_apply_system_optimizations(
-        paths=paths,
-        manifest=manifest,
-        reporter=reporter,
-        state=state,
-        state_path=state_path,
-        input_stream=None,
-        cli_options=SystemOptimizationCliOptions(),
-        environ=environ,
-        auto_update_child=True,
-        run=run,
-    )
+    policy = state.system_ledger.get("policy") if isinstance(state.system_ledger, dict) else None
+    if not isinstance(policy, dict):
+        return
+    ledger = _ledger_with_policy(state.system_ledger, {
+        "system_optimizations": str(policy.get("system_optimizations", "disabled")),
+        "ai_detection": str(policy.get("ai_detection", "unset")),
+    })
+    if not _system_root_allowed(paths=paths, environ=environ):
+        return
+    try:
+        ledger = apply_system_optimizations(
+            paths=paths,
+            spec=manifest.system_optimizations,
+            ledger=ledger,
+            reporter=reporter,
+            input_stream=None,
+            environ=environ,
+            source="auto_update_reconcile",
+            package_version=manifest.package.version,
+            run=run,
+        )
+    except SystemOptimizationRecoveryError:
+        raise
+    except SystemOptimizationApplyError as exc:
+        ledger = exc.ledger
+        reporter.line(f"{messages.SYSTEM_OPTIMIZATIONS_FAILED} {exc.message}")
+    except InstallerError as exc:
+        reporter.line(f"{messages.SYSTEM_OPTIMIZATIONS_FAILED} {getattr(exc, 'message', str(exc))}")
+    updated = _replace_system_ledger(state, ledger)
+    write_installed_state(state_path, updated)
+    _clear_committed_rockchip_journal(paths, ledger)
 
 
 
@@ -165,6 +244,31 @@ def maybe_emit_system_dry_run(
         reporter.line("  - skipped by policy")
         return
     for operation_id in _selected_operation_ids(manifest.system_optimizations, policy):
+        if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+            if not _system_root_allowed(paths=paths, environ=environ):
+                reporter.line(f"  - would evaluate {operation_id}")
+                continue
+            classification = _classify_rockchip_operation(
+                paths=paths,
+                spec=manifest.system_optimizations.rockchip_root_sync,
+                root=_system_root(environ),
+                prior_owned=(
+                    isinstance(prior_ledger, dict)
+                    and isinstance(prior_ledger.get("restore_preimages"), dict)
+                    and operation_id in prior_ledger["restore_preimages"]
+                ),
+                run=subprocess.run,
+            )
+            if classification in ROCKCHIP_UNSUPPORTED:
+                reporter.line(f"  - would preserve rockchip_root_sync ({classification})")
+                continue
+            if classification in ROCKCHIP_ALREADY_CURRENT:
+                reporter.line("  - rockchip_root_sync already current")
+                continue
+            reporter.line(f"  - would apply {operation_id}")
+            reporter.line("  - would install the guarded systemd drop-in, reload/start the unit, and remount / without sync")
+            reporter.line("  - would record a pending delayed host reboot after successful postflight")
+            continue
         reporter.line(f"  - would apply {operation_id}")
     if not _system_root_allowed(paths=paths, environ=environ):
         reporter.line("  - real system writes skipped outside the printer runtime root")
@@ -195,6 +299,7 @@ def maybe_prompt_restore_system_optimizations(
 def restore_system_optimizations(
     *,
     paths: RuntimePaths,
+    manifest: Manifest,
     state: InstalledState,
     reporter,
     input_stream,
@@ -212,6 +317,7 @@ def restore_system_optimizations(
     sudo_password = None if _is_fake_root(root) else _sudo_password(
         reporter=reporter, input_stream=input_stream, environ=environ, run=run
     )
+    rockchip_restored = False
     for operation_id in reversed(list(preimages.keys())):
         preimage = preimages[operation_id]
         if operation_id == "dns":
@@ -228,6 +334,24 @@ def restore_system_optimizations(
         elif operation_id == MOONRAKER_METADATA_OPERATION:
             _restore_file_preimage(preimage, paths=paths, root=root, sudo_password=sudo_password, run=run)
             _restart_service("moonraker.service", root=root, sudo_password=sudo_password, run=run)
+        elif operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+            if manifest.system_optimizations is None:
+                raise SystemOptimizationError("Manifest has no Rockchip restore specification.")
+            restored = _restore_rockchip(
+                preimage,
+                spec=manifest.system_optimizations.rockchip_root_sync,
+                paths=paths,
+                root=root,
+                sudo_password=sudo_password,
+                run=run,
+                require_desired_live=True,
+            )
+            if restored:
+                rockchip_restored = True
+            else:
+                reporter.line("Rockchip system state was modified after install and was preserved.")
+    if rockchip_restored:
+        clear_host_reboot_marker(paths)
     reporter.line(messages.SYSTEM_RESTORE_COMPLETE)
 
 
@@ -279,6 +403,7 @@ def apply_system_optimizations(
     input_stream,
     environ: dict[str, str],
     source: str,
+    package_version: str = "unknown",
     run=subprocess.run,
 ) -> dict[str, Any]:
     root = _system_root(environ)
@@ -287,7 +412,16 @@ def apply_system_optimizations(
     )
     actions = list(ledger.get("actions", [])) if isinstance(ledger.get("actions"), list) else []
     restore_preimages = dict(ledger.get("restore_preimages", {})) if isinstance(ledger.get("restore_preimages"), dict) else {}
+    initial_restore_preimages = dict(restore_preimages)
     policy = ledger.get("policy", {}) if isinstance(ledger.get("policy"), dict) else {}
+    _recover_pending_rockchip_journal(
+        paths=paths,
+        root=root,
+        sudo_password=sudo_password,
+        run=run,
+        ledger=ledger,
+        spec=spec.rockchip_root_sync,
+    )
     selected_ids = _selected_operation_ids(spec, policy)
     if "qidiclient_static_gifs" in selected_ids:
         _validate_qidiclient_archive(paths.installer_root / spec.qidiclient_static_gifs.archive, spec.qidiclient_static_gifs.sha256)
@@ -296,6 +430,88 @@ def apply_system_optimizations(
     try:
         for operation_id in selected_ids:
             started_at = _now()
+            if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+                classification = _classify_rockchip_operation(
+                    paths=paths,
+                    spec=spec.rockchip_root_sync,
+                    root=root,
+                    prior_owned=operation_id in restore_preimages,
+                    run=run,
+                )
+                if classification in ROCKCHIP_UNSUPPORTED or classification in ROCKCHIP_ALREADY_CURRENT:
+                    if classification in ROCKCHIP_UNSUPPORTED:
+                        reporter.line(f"Rockchip root optimization preserved current state: {classification}.")
+                    actions.append(
+                        _action_record(
+                            operation_id=operation_id,
+                            status=classification,
+                            started_at=started_at,
+                            preimage=None,
+                            desired=_desired(operation_id, spec),
+                            postflight={"classification": classification},
+                            source=source,
+                            reconciled=False,
+                        )
+                    )
+                    continue
+                preimage = _capture_rockchip_preimage(
+                    paths=paths,
+                    spec=spec.rockchip_root_sync,
+                    root=root,
+                    classification=classification,
+                    run=run,
+                )
+                transaction_id = uuid.uuid4().hex
+                journal = {
+                    "schema_version": 1,
+                    "operation": operation_id,
+                    "transaction_id": transaction_id,
+                    "started_at": started_at,
+                    "phase": "captured",
+                    "preimage": preimage,
+                }
+                atomic_write_text(
+                    _journal_path(paths),
+                    json.dumps(journal, sort_keys=True, indent=2) + "\n",
+                    mode=0o600,
+                    force_mode=True,
+                )
+                current_preimages[operation_id] = preimage
+                _apply_rockchip(
+                    spec=spec.rockchip_root_sync,
+                    root=root,
+                    sudo_password=sudo_password,
+                    run=run,
+                    classification=classification,
+                )
+                postflight = _postflight_rockchip(spec=spec.rockchip_root_sync, root=root, run=run)
+                installer_owned = classification != "desired_unowned_mount_drift"
+                if installer_owned:
+                    write_host_reboot_marker(
+                        paths,
+                        package_version=package_version,
+                        source=source,
+                        auto_update_checksum_before=(
+                            current_auto_update_checksum(paths)
+                            if source == "auto_update_child"
+                            else None
+                        ),
+                    )
+                    restore_preimages.setdefault(operation_id, preimage)
+                action = _action_record(
+                    operation_id=operation_id,
+                    status="applied" if installer_owned else "reconciled_unowned",
+                    started_at=started_at,
+                    preimage=preimage,
+                    desired=_desired(operation_id, spec),
+                    postflight=postflight,
+                    source=source,
+                    reconciled=source in {"auto_update_child", "auto_update_reconcile"},
+                )
+                action["transaction_id"] = transaction_id
+                actions.append(action)
+                applied_any = True
+                continue
             preimage = _preimage_before_apply_if_required(
                 operation_id,
                 paths=paths,
@@ -400,7 +616,7 @@ def apply_system_optimizations(
                 desired=_desired(operation_id, spec),
                 postflight=postflight,
                 source=source,
-                reconciled=source == "auto_update_reconcile",
+                reconciled=source in {"auto_update_child", "auto_update_reconcile"},
             )
             actions.append(action)
             restore_preimages.setdefault(operation_id, preimage)
@@ -427,8 +643,7 @@ def apply_system_optimizations(
                     reconciled=False,
                 )
             )
-    except Exception as exc:
-        _journal_path(paths).unlink(missing_ok=True)
+    except BaseException as exc:
         try:
             _restore_preimage_map(
                 current_preimages,
@@ -437,11 +652,16 @@ def apply_system_optimizations(
                 sudo_password=sudo_password,
                 run=run,
             )
-        except Exception:
-            pass
-        partial = {**ledger, "actions": actions, "restore_preimages": {**restore_preimages, **current_preimages}}
+        except Exception as rollback_exc:
+            raise SystemOptimizationRecoveryError(
+                f"System optimization rollback failed: {getattr(rollback_exc, 'message', str(rollback_exc))}"
+            ) from rollback_exc
+        atomic_delete(_journal_path(paths))
+        if isinstance(exc, KeyboardInterrupt):
+            raise
+        partial = {**ledger, "actions": actions, "restore_preimages": initial_restore_preimages}
         raise SystemOptimizationApplyError(getattr(exc, "message", str(exc)), partial) from exc
-    if source == "auto_update_reconcile":
+    if source in {"auto_update_child", "auto_update_reconcile"}:
         reporter.line(
             "System optimizations reconciled."
             if applied_any
@@ -506,6 +726,8 @@ def _postflight_operation(
     if operation_id == MOONRAKER_METADATA_OPERATION:
         target = _map_path(root, spec.moonraker_metadata_3mf.file)
         return {"path": spec.moonraker_metadata_3mf.file, "patched": target.exists() and MOONRAKER_METADATA_PATCH_MARKER in target.read_text(encoding="utf-8")}
+    if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+        return _postflight_rockchip(spec=spec.rockchip_root_sync, root=root, run=run)
     return "ok"
 
 
@@ -524,6 +746,14 @@ def _capture_operation_preimage(operation_id: str, *, paths: RuntimePaths, spec:
         return _capture_gifs_preimage(paths=paths, spec=spec, root=root)
     if operation_id == MOONRAKER_METADATA_OPERATION:
         return _capture_file(spec.moonraker_metadata_3mf.file, paths=paths, root=root)
+    if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+        return _capture_rockchip_preimage(
+            paths=paths,
+            spec=spec.rockchip_root_sync,
+            root=root,
+            classification="owned_reconcile",
+            run=run,
+        )
     if operation_id.startswith("service_"):
         service = _service_for_operation(operation_id, spec)
         return {**_service_state(service, root=root, run=run), "service": service}
@@ -543,6 +773,15 @@ def _apply_operation(operation_id: str, *, paths: RuntimePaths, spec: SystemOpti
         return
     if operation_id == MOONRAKER_METADATA_OPERATION:
         _apply_moonraker_metadata_patch(spec=spec, root=root, sudo_password=sudo_password, run=run, preimage=preimage)
+        return
+    if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+        _apply_rockchip(
+            spec=spec.rockchip_root_sync,
+            root=root,
+            sudo_password=sudo_password,
+            run=run,
+            classification=str(preimage.get("classification", "owned_reconcile")),
+        )
         return
     if operation_id.startswith("service_"):
         service = _service_for_operation(operation_id, spec)
@@ -736,6 +975,16 @@ def _restore_preimage_map(preimages: dict[str, Any], *, paths: RuntimePaths, roo
         elif operation_id == MOONRAKER_METADATA_OPERATION:
             _restore_file_preimage(preimage, paths=paths, root=root, sudo_password=sudo_password, run=run)
             _restart_service("moonraker.service", root=root, sudo_password=sudo_password, run=run)
+        elif operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+            _restore_rockchip(
+                preimage,
+                spec=None,
+                paths=paths,
+                root=root,
+                sudo_password=sudo_password,
+                run=run,
+                require_desired_live=False,
+            )
 
 
 
@@ -1030,6 +1279,388 @@ def _operation_needs_apply(operation_id: str, *, spec: SystemOptimizationsSpec, 
 
 
 
+def _classify_rockchip_operation(
+    *,
+    paths: RuntimePaths,
+    spec: SystemRockchipRootSyncSpec,
+    root: Path,
+    prior_owned: bool,
+    run,
+) -> str:
+    dropin = _map_path(root, spec.dropin)
+    unit_file = _map_path(root, spec.unit_file)
+    script = _map_path(root, spec.script)
+    if _path_has_symlink_component(dropin, root=root):
+        return "unsafe_path"
+    if dropin.exists() or dropin.is_symlink():
+        if dropin.is_symlink() or not dropin.is_file():
+            return "conflicting_dropin"
+        try:
+            content = dropin.read_text(encoding="utf-8")
+        except OSError:
+            return "conflicting_dropin"
+        if content != spec.dropin_content:
+            return "conflicting_dropin"
+        if not _exec_start_matches(_effective_exec_start(spec=spec, root=root, run=run), spec.desired_exec_start):
+            return "conflicting_dropin"
+        if _root_mount_has_sync(spec=spec, root=root, run=run):
+            return "owned_mount_drift" if prior_owned else "desired_unowned_mount_drift"
+        return "already_current_owned" if prior_owned else "already_current_unowned"
+    if (
+        unit_file.is_symlink()
+        or script.is_symlink()
+        or not unit_file.is_file()
+        or not script.is_file()
+    ):
+        return "unsupported"
+    try:
+        unit_text = unit_file.read_text(encoding="utf-8")
+        script_text = script.read_text(encoding="utf-8")
+    except OSError:
+        return "unsupported"
+    if any(_active_shell_marker_position(unit_text, marker) is None for marker in spec.defective_unit_markers):
+        return "unsupported"
+    if any(_active_shell_marker_position(script_text, marker) is None for marker in spec.defective_script_markers):
+        return "unsupported"
+    positions = [_active_shell_marker_position(script_text, marker) for marker in spec.ordered_script_markers]
+    if (
+        any(position is None for position in positions)
+        or positions != sorted(positions)
+        or len(set(positions)) != len(positions)
+    ):
+        return "unsupported"
+    if not _exec_start_matches(_effective_exec_start(spec=spec, root=root, run=run), spec.vendor_exec_start):
+        return "unsupported"
+    return "owned_reconcile" if prior_owned else "defective_stock"
+
+
+def _active_shell_marker_position(text: str, marker: str) -> int | None:
+    if marker.startswith("#!"):
+        first = text.splitlines()[0].strip() if text.splitlines() else ""
+        return 0 if first == marker else None
+    exact_markers = {
+        'CHIPNAME="rk3208"',
+        "mount -o remount,sync /",
+        "install_packages",
+        "touch /usr/local/first_boot_flag",
+        "ExecStart=/etc/init.d/rockchip.sh",
+    }
+    matches: list[int] = []
+    for index, raw_line in enumerate(text.splitlines()):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        executable = line.split(" #", 1)[0].rstrip()
+        if marker in exact_markers:
+            if executable == marker or (
+                marker == "install_packages" and executable.startswith("install_packages ")
+            ):
+                matches.append(index)
+        elif marker in executable:
+            matches.append(index)
+    return matches[-1] if matches else None
+
+
+def _capture_rockchip_preimage(
+    *,
+    paths: RuntimePaths,
+    spec: SystemRockchipRootSyncSpec,
+    root: Path,
+    classification: str,
+    run,
+) -> dict[str, Any]:
+    marker_path = paths.host_reboot_marker_path
+    marker: dict[str, Any] = {"exists": marker_path.exists()}
+    if marker["exists"]:
+        read_host_reboot_marker(paths)
+        if marker_path.is_symlink() or not marker_path.is_file():
+            raise SystemOptimizationError("Host reboot marker is not a regular file.")
+        marker.update(
+            {
+                "content": marker_path.read_text(encoding="utf-8"),
+                "mode": f"{marker_path.stat().st_mode & 0o777:04o}",
+            }
+        )
+    return {
+        "classification": classification,
+        "dropin": _capture_file(spec.dropin, paths=paths, root=root),
+        "desired_dropin": spec.dropin_content,
+        "unit": _rockchip_unit_state(spec=spec, root=root, run=run),
+        "mount_options": list(_root_mount_options(spec=spec, root=root, run=run)),
+        "marker": marker,
+    }
+
+
+def _apply_rockchip(
+    *,
+    spec: SystemRockchipRootSyncSpec,
+    root: Path,
+    sudo_password: str | None,
+    run,
+    classification: str,
+) -> None:
+    if classification != "desired_unowned_mount_drift":
+        _install_rockchip_dropin(
+            spec=spec,
+            root=root,
+            sudo_password=sudo_password,
+            run=run,
+        )
+    if _is_fake_root(root):
+        _write_fake_service_state(spec.unit, root=root, enabled="enabled", active="inactive")
+        state_path = _fake_service_state_path(root, spec.unit)
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state.update({"result": "success", "exec_main_status": 0, "sub": "dead"})
+        state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+        _write_fake_root_mount_options(spec=spec, root=root, options=_async_mount_options(_root_mount_options(spec=spec, root=root, run=run)))
+        return
+    run_sudo_or_raise(["systemctl", "daemon-reload"], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+    run_sudo_ignore_failure(["systemctl", "reset-failed", spec.unit], run=run, password=sudo_password or "")
+    run_sudo_or_raise(["systemctl", "start", spec.unit], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+    run_sudo_or_raise(["mount", "-o", "remount,rw,async", spec.mount_target], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+
+
+def _install_rockchip_dropin(
+    *,
+    spec: SystemRockchipRootSyncSpec,
+    root: Path,
+    sudo_password: str | None,
+    run,
+) -> None:
+    mapped = _map_path(root, spec.dropin)
+    if _is_fake_root(root):
+        mapped.parent.mkdir(parents=True, exist_ok=True)
+        _reject_symlink_path(mapped, root=root)
+        atomic_write_text(mapped, spec.dropin_content, mode=0o644, force_mode=True)
+        return
+    _reject_parent_symlink_path(mapped, root=root)
+    if mapped.is_symlink():
+        raise SystemOptimizationError(f"Refusing to replace symlink: {spec.dropin}")
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
+        handle.write(spec.dropin_content)
+        source = handle.name
+    target_tmp = f"{spec.dropin}.tltg-{_now_for_path()}.tmp"
+    try:
+        run_sudo_or_raise(["install", "-D", "-m", "0644", source, target_tmp], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+        run_sudo_or_raise(["mv", "-f", target_tmp, spec.dropin], messages.SYSTEM_OPTIMIZATIONS_FAILED, run=run, password=sudo_password or "")
+    finally:
+        Path(source).unlink(missing_ok=True)
+        run_sudo_ignore_failure(["rm", "-f", target_tmp], run=run, password=sudo_password or "")
+
+
+def verify_rockchip_postflight(
+    *,
+    spec: SystemRockchipRootSyncSpec,
+    environ: dict[str, str],
+    run=subprocess.run,
+) -> dict[str, Any]:
+    return _postflight_rockchip(spec=spec, root=_system_root(environ), run=run)
+
+
+def _postflight_rockchip(*, spec: SystemRockchipRootSyncSpec, root: Path, run) -> dict[str, Any]:
+    dropin = _map_path(root, spec.dropin)
+    if dropin.is_symlink() or not dropin.is_file() or dropin.read_text(encoding="utf-8") != spec.dropin_content:
+        raise SystemOptimizationError("Rockchip systemd drop-in did not reach desired state.")
+    effective = _effective_exec_start(spec=spec, root=root, run=run)
+    if not _exec_start_matches(effective, spec.desired_exec_start):
+        raise SystemOptimizationError("Rockchip effective ExecStart did not reach the no-op command.")
+    state = _rockchip_unit_state(spec=spec, root=root, run=run)
+    if state.get("result") != "success" or state.get("exec_main_status") != 0:
+        raise SystemOptimizationError("Rockchip service did not complete successfully.")
+    if state.get("active") not in {"active", "inactive"}:
+        raise SystemOptimizationError("Rockchip service active state is invalid after completion.")
+    options = _root_mount_options(spec=spec, root=root, run=run)
+    if "sync" in options:
+        raise SystemOptimizationError("Root filesystem still has the sync mount option.")
+    return {
+        "dropin": spec.dropin,
+        "exec_start": spec.desired_exec_start,
+        "service": state,
+        "mount_options": list(options),
+    }
+
+
+def _restore_rockchip(
+    preimage: dict[str, Any],
+    *,
+    spec: SystemRockchipRootSyncSpec | None,
+    paths: RuntimePaths,
+    root: Path,
+    sudo_password: str | None,
+    run,
+    require_desired_live: bool,
+) -> bool:
+    if spec is not None:
+        _validate_rockchip_restore_preimage(preimage, spec=spec, paths=paths)
+    dropin_preimage = preimage.get("dropin", {})
+    dropin_path = str(dropin_preimage.get("path", spec.dropin if spec is not None else ""))
+    desired = str(preimage.get("desired_dropin", spec.dropin_content if spec is not None else ""))
+    if not dropin_path:
+        raise SystemOptimizationError("Rockchip restore preimage is missing the drop-in path.")
+    mapped = _map_path(root, dropin_path)
+    if require_desired_live and (
+        mapped.is_symlink() or not mapped.is_file() or mapped.read_text(encoding="utf-8") != desired
+    ):
+        return False
+    _restore_file_preimage(dropin_preimage, paths=paths, root=root, sudo_password=sudo_password, run=run)
+    mount_options = tuple(str(item) for item in preimage.get("mount_options", []))
+    if _is_fake_root(root):
+        rockchip_spec = spec or _rockchip_spec_from_preimage(preimage)
+        _write_fake_root_mount_options(spec=rockchip_spec, root=root, options=mount_options)
+    else:
+        run_sudo_or_raise(["systemctl", "daemon-reload"], messages.SYSTEM_RESTORE_FAILED, run=run, password=sudo_password or "")
+        mode = "sync" if "sync" in mount_options else "async"
+        mount_target = spec.mount_target if spec is not None else "/"
+        run_sudo_or_raise(["mount", "-o", f"remount,rw,{mode}", mount_target], messages.SYSTEM_RESTORE_FAILED, run=run, password=sudo_password or "")
+    marker = preimage.get("marker", {})
+    if marker.get("exists"):
+        atomic_write_text(
+            paths.host_reboot_marker_path,
+            str(marker.get("content", "")),
+            mode=int(str(marker.get("mode", "0600")), 8),
+            force_mode=True,
+        )
+    else:
+        clear_host_reboot_marker(paths)
+    return True
+
+
+def _rockchip_spec_from_preimage(preimage: dict[str, Any]) -> SystemRockchipRootSyncSpec:
+    dropin = str(preimage.get("dropin", {}).get("path", "/etc/systemd/system/rockchip.service.d/override.conf"))
+    return SystemRockchipRootSyncSpec(
+        id=ROCKCHIP_ROOT_SYNC_OPERATION,
+        unit="rockchip.service",
+        unit_file="/lib/systemd/system/rockchip.service",
+        script="/etc/init.d/rockchip.sh",
+        dropin=dropin,
+        dropin_content=str(preimage.get("desired_dropin", "")),
+        mount_target="/",
+        defective_unit_markers=(),
+        defective_script_markers=(),
+        ordered_script_markers=(),
+        vendor_exec_start="/etc/init.d/rockchip.sh",
+        desired_exec_start="/bin/true",
+    )
+
+
+def _effective_exec_start(*, spec: SystemRockchipRootSyncSpec, root: Path, run) -> str:
+    if _is_fake_root(root):
+        dropin = _map_path(root, spec.dropin)
+        source = dropin if dropin.is_file() else _map_path(root, spec.unit_file)
+        try:
+            values = [
+                line.split("=", 1)[1].strip()
+                for line in source.read_text(encoding="utf-8").splitlines()
+                if line.strip().startswith("ExecStart=")
+            ]
+        except OSError:
+            return ""
+        non_empty = [value for value in values if value]
+        return non_empty[-1] if non_empty else ""
+    result = run(
+        ["systemctl", "show", spec.unit, "--property=ExecStart", "--value"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    return (result.stdout or "").strip() if result.returncode == 0 else ""
+
+
+def _exec_start_matches(value: str, expected: str) -> bool:
+    stripped = value.strip()
+    if stripped == expected or stripped.startswith(f"{expected} "):
+        return True
+    return f"path={expected} " in stripped or f"argv[]={expected} " in stripped
+
+
+def _rockchip_unit_state(*, spec: SystemRockchipRootSyncSpec, root: Path, run) -> dict[str, Any]:
+    if _is_fake_root(root):
+        state_path = _fake_service_state_path(root, spec.unit)
+        if not state_path.exists():
+            return {"exists": True, "active": "failed", "sub": "failed", "result": "exit-code", "exec_main_status": 100}
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        return {
+            "exists": bool(state.get("exists", True)),
+            "active": str(state.get("active", "unknown")),
+            "sub": str(state.get("sub", "unknown")),
+            "result": str(state.get("result", "unknown")),
+            "exec_main_status": int(state.get("exec_main_status", -1)),
+        }
+    properties: dict[str, str] = {}
+    for prop in ("ActiveState", "SubState", "Result", "ExecMainStatus"):
+        result = run(
+            ["systemctl", "show", spec.unit, f"--property={prop}", "--value"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            raise SystemOptimizationError(f"Could not inspect {spec.unit} property {prop}.")
+        properties[prop] = (result.stdout or "").strip()
+    try:
+        status = int(properties["ExecMainStatus"])
+    except ValueError as exc:
+        raise SystemOptimizationError("Rockchip service exit status is invalid.") from exc
+    return {
+        "exists": True,
+        "active": properties["ActiveState"],
+        "sub": properties["SubState"],
+        "result": properties["Result"],
+        "exec_main_status": status,
+    }
+
+
+def _root_mount_options(*, spec: SystemRockchipRootSyncSpec, root: Path, run) -> tuple[str, ...]:
+    if _is_fake_root(root):
+        path = _fake_root_mount_state_path(root)
+        if not path.exists():
+            return ("rw", "relatime", "sync")
+        value = path.read_text(encoding="utf-8").strip()
+    else:
+        result = run(
+            ["findmnt", "--noheadings", "--output", "OPTIONS", "--target", spec.mount_target],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        if result.returncode != 0:
+            raise SystemOptimizationError("Could not inspect root mount options.")
+        value = (result.stdout or "").strip()
+    options = tuple(item.strip() for item in value.split(",") if item.strip())
+    if not options:
+        raise SystemOptimizationError("Root mount options are empty.")
+    return options
+
+
+def _root_mount_has_sync(*, spec: SystemRockchipRootSyncSpec, root: Path, run) -> bool:
+    return "sync" in _root_mount_options(spec=spec, root=root, run=run)
+
+
+def _async_mount_options(options: tuple[str, ...]) -> tuple[str, ...]:
+    result = [item for item in options if item != "sync"]
+    if "rw" not in result:
+        result.insert(0, "rw")
+    return tuple(result)
+
+
+def _write_fake_root_mount_options(*, spec: SystemRockchipRootSyncSpec, root: Path, options: tuple[str, ...]) -> None:
+    path = _fake_root_mount_state_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(",".join(options) + "\n", encoding="utf-8")
+
+
+def _fake_root_mount_state_path(root: Path) -> Path:
+    return root / "mounts" / "root.options"
+
+
+def _path_has_symlink_component(path: Path, *, root: Path) -> bool:
+    try:
+        _reject_parent_symlink_path(path, root=root)
+    except SystemOptimizationError:
+        return True
+    return path.is_symlink()
+
+
 def _selected_operation_ids(spec: SystemOptimizationsSpec, policy: dict[str, Any]) -> tuple[str, ...]:
     ids = [MOONRAKER_METADATA_OPERATION]
     if policy.get("system_optimizations") != "enabled":
@@ -1038,6 +1669,7 @@ def _selected_operation_ids(spec: SystemOptimizationsSpec, policy: dict[str, Any
     ids.extend(f"service_{service}" for service in spec.services.disable)
     if policy.get("ai_detection") == "disable":
         ids.extend(f"service_{item.service}" for item in spec.services.optional_disable)
+    ids.append(ROCKCHIP_ROOT_SYNC_OPERATION)
     return tuple(ids)
 
 
@@ -1074,6 +1706,15 @@ def _desired(operation_id: str, spec: SystemOptimizationsSpec) -> dict[str, Any]
         return {"archive_sha256": spec.qidiclient_static_gifs.sha256}
     if operation_id == MOONRAKER_METADATA_OPERATION:
         return {"path": spec.moonraker_metadata_3mf.file, "restart_service": spec.moonraker_metadata_3mf.restart_service}
+    if operation_id == ROCKCHIP_ROOT_SYNC_OPERATION:
+        rockchip = spec.rockchip_root_sync
+        return {
+            "dropin": rockchip.dropin,
+            "dropin_sha256": hashlib.sha256(rockchip.dropin_content.encode("utf-8")).hexdigest(),
+            "exec_start": rockchip.desired_exec_start,
+            "mount_target": rockchip.mount_target,
+            "sync": False,
+        }
     if operation_id.startswith("service_"):
         return {"enabled": "disabled", "active": "inactive"}
     return {}
@@ -1196,6 +1837,7 @@ def _replace_system_ledger(state: InstalledState, ledger: dict[str, Any]) -> Ins
         installed_at=state.installed_at,
         managed_tree=state.managed_tree,
         patch_ledger=state.patch_ledger,
+        source_patches=state.source_patches,
         system_ledger=ledger,
     )
 
@@ -1248,6 +1890,157 @@ def _reject_parent_symlink_path(path: Path, *, root: Path) -> None:
         current = current / part
         if current.exists() and current.is_symlink():
             raise SystemOptimizationError(f"Refusing to write through symlink: {path}")
+
+
+def _validate_rockchip_restore_preimage(
+    preimage: dict[str, Any],
+    *,
+    spec: SystemRockchipRootSyncSpec,
+    paths: RuntimePaths,
+) -> None:
+    required = {"classification", "dropin", "desired_dropin", "unit", "mount_options", "marker"}
+    if set(preimage) != required or preimage.get("desired_dropin") != spec.dropin_content:
+        raise SystemOptimizationRecoveryError("Rockchip restore preimage has an invalid schema.")
+    if preimage.get("classification") not in {
+        "defective_stock",
+        "owned_reconcile",
+        "owned_mount_drift",
+        "desired_unowned_mount_drift",
+    }:
+        raise SystemOptimizationRecoveryError("Rockchip restore classification is invalid.")
+    dropin = preimage.get("dropin")
+    if not isinstance(dropin, dict) or dropin.get("path") != spec.dropin or not isinstance(dropin.get("exists"), bool):
+        raise SystemOptimizationRecoveryError("Rockchip restore drop-in preimage is invalid.")
+    if dropin["exists"]:
+        if dropin.get("type") != "file":
+            raise SystemOptimizationRecoveryError("Rockchip restore drop-in type is invalid.")
+        backup_value = dropin.get("backup_path")
+        if not isinstance(backup_value, str):
+            raise SystemOptimizationRecoveryError("Rockchip restore backup path is invalid.")
+        backup = Path(backup_value)
+        backup_root = (paths.printer_data_root / SYSTEM_BACKUP_DIR).resolve()
+        try:
+            backup.resolve().relative_to(backup_root)
+        except (OSError, ValueError) as exc:
+            raise SystemOptimizationRecoveryError("Rockchip restore backup escapes the managed backup root.") from exc
+        if backup.is_symlink() or not backup.is_file():
+            raise SystemOptimizationRecoveryError("Rockchip restore backup is missing or unsafe.")
+        try:
+            if backup.read_text(encoding="utf-8") != spec.dropin_content:
+                raise SystemOptimizationRecoveryError("Rockchip restore backup content is not recognized.")
+        except OSError as exc:
+            raise SystemOptimizationRecoveryError("Rockchip restore backup could not be read.") from exc
+        mode = dropin.get("mode")
+        try:
+            parsed_mode = int(str(mode), 8)
+        except (TypeError, ValueError) as exc:
+            raise SystemOptimizationRecoveryError("Rockchip restore mode is invalid.") from exc
+        if not 0 <= parsed_mode <= 0o777:
+            raise SystemOptimizationRecoveryError("Rockchip restore mode is invalid.")
+        if any(not isinstance(dropin.get(key), int) or isinstance(dropin.get(key), bool) or dropin[key] < 0 for key in ("uid", "gid")):
+            raise SystemOptimizationRecoveryError("Rockchip restore ownership is invalid.")
+    elif set(dropin) != {"path", "exists"}:
+        raise SystemOptimizationRecoveryError("Absent Rockchip drop-in preimage contains unexpected fields.")
+    options = preimage.get("mount_options")
+    if not isinstance(options, list) or not options or any(
+        not isinstance(option, str)
+        or not option
+        or "," in option
+        or any(char.isspace() for char in option)
+        for option in options
+    ):
+        raise SystemOptimizationRecoveryError("Rockchip restore mount options are invalid.")
+    marker = preimage.get("marker")
+    if not isinstance(marker, dict) or not isinstance(marker.get("exists"), bool):
+        raise SystemOptimizationRecoveryError("Rockchip restore marker preimage is invalid.")
+    if marker["exists"]:
+        if set(marker) != {"exists", "content", "mode"} or not isinstance(marker.get("content"), str):
+            raise SystemOptimizationRecoveryError("Rockchip restore marker content is invalid.")
+        try:
+            marker_mode = int(str(marker.get("mode")), 8)
+        except (TypeError, ValueError) as exc:
+            raise SystemOptimizationRecoveryError("Rockchip restore marker mode is invalid.") from exc
+        if marker_mode != 0o600:
+            raise SystemOptimizationRecoveryError("Rockchip restore marker mode is invalid.")
+    elif set(marker) != {"exists"}:
+        raise SystemOptimizationRecoveryError("Absent Rockchip marker preimage contains unexpected fields.")
+
+
+def _recover_pending_rockchip_journal(
+    *,
+    paths: RuntimePaths,
+    root: Path,
+    sudo_password: str | None,
+    run,
+    ledger: dict[str, Any],
+    spec: SystemRockchipRootSyncSpec,
+) -> None:
+    path = _journal_path(paths)
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemOptimizationRecoveryError("System optimization journal is invalid.") from exc
+    if not isinstance(payload, dict) or payload.get("operation") != ROCKCHIP_ROOT_SYNC_OPERATION:
+        return
+    preimage = payload.get("preimage")
+    transaction_id = payload.get("transaction_id")
+    if (
+        payload.get("schema_version") != 1
+        or not isinstance(preimage, dict)
+        or not isinstance(transaction_id, str)
+        or not transaction_id
+    ):
+        raise SystemOptimizationRecoveryError("Rockchip system optimization journal is incomplete.")
+    _validate_rockchip_restore_preimage(preimage, spec=spec, paths=paths)
+    actions = ledger.get("actions") if isinstance(ledger, dict) else None
+    if isinstance(actions, list) and any(
+        isinstance(action, dict)
+        and action.get("id") == ROCKCHIP_ROOT_SYNC_OPERATION
+        and action.get("transaction_id") == transaction_id
+        and action.get("status") in {"applied", "reconciled_unowned"}
+        for action in actions
+    ):
+        atomic_delete(path)
+        return
+    try:
+        _restore_rockchip(
+            preimage,
+            spec=spec,
+            paths=paths,
+            root=root,
+            sudo_password=sudo_password,
+            run=run,
+            require_desired_live=False,
+        )
+    except Exception as exc:
+        raise SystemOptimizationRecoveryError(
+            f"Pending Rockchip rollback failed: {getattr(exc, 'message', str(exc))}"
+        ) from exc
+    atomic_delete(path)
+
+
+def _clear_committed_rockchip_journal(paths: RuntimePaths, ledger: dict[str, Any]) -> None:
+    path = _journal_path(paths)
+    if not path.exists():
+        return
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemOptimizationRecoveryError("System optimization journal is invalid after state persistence.") from exc
+    if isinstance(payload, dict) and payload.get("operation") == ROCKCHIP_ROOT_SYNC_OPERATION:
+        transaction_id = payload.get("transaction_id")
+        actions = ledger.get("actions") if isinstance(ledger, dict) else None
+        if not isinstance(transaction_id, str) or not isinstance(actions, list) or not any(
+            isinstance(action, dict)
+            and action.get("id") == ROCKCHIP_ROOT_SYNC_OPERATION
+            and action.get("transaction_id") == transaction_id
+            and action.get("status") in {"applied", "reconciled_unowned"}
+            for action in actions
+        ):
+            raise SystemOptimizationRecoveryError("Rockchip journal has no matching committed ledger action.")
+        atomic_delete(path)
 
 
 def _journal_path(paths: RuntimePaths) -> Path:

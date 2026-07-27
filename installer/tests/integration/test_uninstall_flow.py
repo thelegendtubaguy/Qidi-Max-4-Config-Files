@@ -76,7 +76,7 @@ class UninstallFlowTests(unittest.TestCase):
         output = stream.getvalue()
         self.assertIn("stage 1/5", output)
         self.assertIn("Uninstalled.", output)
-        self.assertIn("Restart Klipper to apply changes.", output)
+        self.assertIn("Klipper service process restarted and verified.", output)
         self.assertTrue(result.backup_zip_path.exists())
 
     def test_uninstall_preserves_user_modified_homing_override(self):

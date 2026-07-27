@@ -16,6 +16,26 @@ class RuntimePaths:
     lock_path: Path
     recovery_sentinel_path: Path
     backup_root: Path
+    klipper_root: Path | None = None
+    process_restart_marker_path: Path | None = None
+    host_reboot_marker_override: Path | None = None
+    boot_id_path_override: Path | None = None
+
+    @property
+    def managed_klipper_root(self) -> Path:
+        return self.klipper_root or self.printer_data_root.parent / "klipper"
+
+    @property
+    def restart_marker_path(self) -> Path:
+        return self.process_restart_marker_path or self.printer_data_root / ".tltg_optimized_klipper_restart_required"
+
+    @property
+    def host_reboot_marker_path(self) -> Path:
+        return self.host_reboot_marker_override or self.printer_data_root / ".tltg_optimized_host_reboot_required"
+
+    @property
+    def boot_id_path(self) -> Path:
+        return self.boot_id_path_override or Path("/proc/sys/kernel/random/boot_id")
 
 
 @dataclass(frozen=True)
@@ -122,10 +142,26 @@ class PreflightSpec:
 
 
 @dataclass(frozen=True)
+class SourcePatchVariantSpec:
+    firmware: str
+    expected_sha256: str
+    desired_sha256: str
+
+
+@dataclass(frozen=True)
+class SourcePatchSpec:
+    id: str
+    source: str
+    destination: str
+    variants: tuple[SourcePatchVariantSpec, ...]
+
+
+@dataclass(frozen=True)
 class InstallSpec:
     ensure_directories: tuple[str, ...]
     managed_tree: ManagedTreeSpec
     ensure_lines: tuple[EnsureLineSpec, ...]
+    source_patches: tuple[SourcePatchSpec, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -182,6 +218,22 @@ class SystemMoonrakerMetadata3mfSpec:
 
 
 @dataclass(frozen=True)
+class SystemRockchipRootSyncSpec:
+    id: str
+    unit: str
+    unit_file: str
+    script: str
+    dropin: str
+    dropin_content: str
+    mount_target: str
+    defective_unit_markers: tuple[str, ...]
+    defective_script_markers: tuple[str, ...]
+    ordered_script_markers: tuple[str, ...]
+    vendor_exec_start: str
+    desired_exec_start: str
+
+
+@dataclass(frozen=True)
 class SystemOptimizationsSpec:
     enabled_by_default: bool
     dns: SystemDnsSpec
@@ -189,6 +241,7 @@ class SystemOptimizationsSpec:
     services: SystemServicesSpec
     qidiclient_static_gifs: SystemQidiClientStaticGifsSpec
     moonraker_metadata_3mf: SystemMoonrakerMetadata3mfSpec
+    rockchip_root_sync: SystemRockchipRootSyncSpec
 
 
 @dataclass(frozen=True)
@@ -238,9 +291,19 @@ class AllowedPatchTarget:
 
 
 @dataclass(frozen=True)
+class UpgradeSourcePatch:
+    id: str
+    destination: str
+    firmware: str
+    original_sha256: str
+    desired_sha256: str
+
+
+@dataclass(frozen=True)
 class UpgradeSource:
     version: str
     allowed_patch_targets: tuple[AllowedPatchTarget, ...]
+    source_patches: tuple[UpgradeSourcePatch, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -277,6 +340,18 @@ class PatchLedgerEntry:
 
 
 @dataclass(frozen=True)
+class SourcePatchState:
+    id: str
+    destination: str
+    firmware: str
+    original_sha256: str
+    desired_sha256: str
+    original_mode: int
+    original_bytes: bytes
+    install_result: str
+
+
+@dataclass(frozen=True)
 class InstalledState:
     schema_version: int
     package_id: str
@@ -286,6 +361,7 @@ class InstalledState:
     installed_at: str
     managed_tree: ManagedTreeState
     patch_ledger: tuple[PatchLedgerEntry, ...]
+    source_patches: tuple[SourcePatchState, ...] = ()
     system_ledger: Optional[dict[str, Any]] = None
 
 
@@ -295,6 +371,7 @@ class SystemOptimizationCliOptions:
     disable_ai_detection: bool = False
     keep_ai_detection: bool = False
     keep_system_optimizations: bool = False
+    reboot_host: bool = False
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,7 @@ from installer.tests.helpers import (
     REPO_ROOT,
     build_env,
     copy_base_runtime,
+    homing_fixture_bytes,
     moonraker_urlopen,
     temp_path,
 )
@@ -53,6 +54,10 @@ class InstallFlowTests(unittest.TestCase):
     def _overlay_stock_snapshot(self, printer_root, version):
         source = REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares" / version / "config"
         shutil.copytree(source, printer_root / "config", dirs_exist_ok=True)
+        if version == "01.01.06.04":
+            (printer_root / "klipper/klippy/extras/homing.py").write_bytes(
+                homing_fixture_bytes(version)
+            )
 
     def test_happy_path_install(self):
         printer_root = copy_base_runtime()
@@ -66,7 +71,7 @@ class InstallFlowTests(unittest.TestCase):
         self.assertTrue((paths.config_root / "tltg_optimized_state.yaml").exists())
         printer_cfg = (paths.config_root / "printer.cfg").read_text(encoding="utf-8")
         self.assertIn("[include tltg-optimized-macros/*.cfg]", printer_cfg)
-        self.assertIn("homing_speed: 65", printer_cfg)
+        self.assertIn("homing_speed: 100", printer_cfg)
         self.assertEqual(
             klipper_cfg.resolve_unique_option(printer_cfg, "z_tilt", "speed").value,
             "600",
@@ -83,7 +88,7 @@ class InstallFlowTests(unittest.TestCase):
         output = stream.getvalue()
         self.assertIn("stage 1/5", output)
         self.assertIn("Installed.", output)
-        self.assertIn("Restart Klipper to apply changes.", output)
+        self.assertIn("Klipper service process restarted and verified.", output)
         self.assertTrue(result.backup_zip_path.exists())
 
     def test_happy_path_install_on_firmware_04_stock_config(self):
@@ -103,7 +108,7 @@ class InstallFlowTests(unittest.TestCase):
         self.assertIn("[include tltg-optimized-macros/*.cfg]", printer_cfg)
         self.assertEqual(
             klipper_cfg.resolve_unique_option(printer_cfg, "stepper_x", "homing_speed").value,
-            "65",
+            "100",
         )
         self.assertEqual(
             klipper_cfg.resolve_unique_option(printer_cfg, "closed_loop x", "query_cycle").value,
@@ -480,6 +485,9 @@ class InstallFlowTests(unittest.TestCase):
     def test_legacy_manual_configs_reset_to_firmware_04_stock_before_install(self):
         printer_root = copy_base_runtime()
         self._set_firmware_version(printer_root, "01.01.06.04")
+        (printer_root / "klipper/klippy/extras/homing.py").write_bytes(
+            homing_fixture_bytes("01.01.06.04")
+        )
         (printer_root / "config/klipper-macros-qd/filament.cfg").write_text(
             "[gcode_macro OPTIMIZED_CUT_FILAMENT]\ngcode:\n  M118 legacy\n",
             encoding="utf-8",

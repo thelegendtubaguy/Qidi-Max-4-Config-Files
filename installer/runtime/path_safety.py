@@ -29,6 +29,20 @@ def ensure_runtime_path_has_no_symlink_components(
 
 
 
+def ensure_external_path_has_no_symlink_components(*, root: Path, target: Path) -> None:
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise PathSafetyError(f"Runtime path is outside managed Klipper root: {target}") from exc
+    if root.is_symlink():
+        raise PathSafetyError(f"Managed Klipper root is a symlink: {root}")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise PathSafetyError(f"Runtime path contains a symlink: {current}")
+
+
 def ensure_runtime_tree_has_no_symlinks(
     root: Path, *, allowed_relative_symlinks: Iterable[str | Path] = ()
 ) -> None:
@@ -95,4 +109,9 @@ def _manifest_runtime_targets(*, paths: RuntimePaths, manifest: Manifest) -> set
     targets.update(paths.printer_data_root / spec.file for spec in manifest.postflight.verify_lines)
     targets.update(paths.printer_data_root / patch.file for patch in manifest.patches.set_options)
     targets.update(paths.printer_data_root / patch.file for patch in manifest.patches.delete_sections)
+    for patch in manifest.install.source_patches:
+        ensure_external_path_has_no_symlink_components(
+            root=paths.managed_klipper_root,
+            target=paths.managed_klipper_root / patch.destination,
+        )
     return targets

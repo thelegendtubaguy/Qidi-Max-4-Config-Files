@@ -280,6 +280,19 @@ class OptimizedMacroContractTests(unittest.TestCase):
             "Z_TILT_ADJUST",
         )
 
+    def test_start_reports_live_bed_temperature_before_each_z_tilt(self):
+        report_gcode = self._macro_gcode("_OPTIMIZED_REPORT_BED_TEMP")
+        self.assertIn(
+            "M118 Bed temp wait reached.  Target: {printer.heater_bed.target|round(1)} Actual: {printer.heater_bed.temperature|round(1)}",
+            report_gcode,
+        )
+
+        start_gcode = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
+        self.assertEqual(start_gcode.count("_OPTIMIZED_REPORT_BED_TEMP"), 3)
+        self.assertEqual(start_gcode.count("Z_TILT_ADJUST"), 3)
+        for branch in start_gcode.split("Z_TILT_ADJUST")[:-1]:
+            self.assertTrue(branch.rstrip().endswith("_OPTIMIZED_REPORT_BED_TEMP"))
+
     def test_chamber_wait_accepts_three_degree_startup_window(self):
         chamber_gcode = self._macro_gcode("OPTIMIZED_WAIT_CHAMBER")
         self.assertIn('TEMPERATURE_WAIT SENSOR="heater_generic chamber" MINIMUM={([target - 3, 0]|max)}', chamber_gcode)

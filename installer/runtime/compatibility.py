@@ -6,7 +6,13 @@ from typing import Any
 import yaml
 
 from .manifest import ManifestValidationError, validate_relative_path
-from .models import AllowedPatchTarget, Manifest, UpgradeSource, UpgradeSources
+from .models import (
+    AllowedPatchTarget,
+    Manifest,
+    UpgradeSource,
+    UpgradeSourcePatch,
+    UpgradeSources,
+)
 
 
 class CompatibilityValidationError(ValueError):
@@ -51,6 +57,14 @@ def parse_supported_upgrade_sources(raw: Any) -> UpgradeSources:
                 f"Version entry for {version} must be a mapping."
             )
         allowed_raw = entry.get("allowed_patch_targets")
+        inherited_version = entry.get("inherits")
+        if inherited_version is not None:
+            inherited = versions.get(inherited_version) if isinstance(inherited_version, str) else None
+            if inherited is None or allowed_raw is not None:
+                raise CompatibilityValidationError(
+                    f"inherits for {version} must name an earlier version and replace allowed_patch_targets."
+                )
+            allowed_raw = [target.__dict__ for target in inherited.allowed_patch_targets]
         if not isinstance(allowed_raw, list):
             raise CompatibilityValidationError(
                 f"allowed_patch_targets for {version} must be a list."
@@ -75,8 +89,11 @@ def parse_supported_upgrade_sources(raw: Any) -> UpgradeSources:
                 )
             seen.add(item.target_tuple)
             allowed_targets.append(item)
+        source_patches = _parse_source_patches(entry, version)
         versions[version] = UpgradeSource(
-            version=version, allowed_patch_targets=tuple(allowed_targets)
+            version=version,
+            allowed_patch_targets=tuple(allowed_targets),
+            source_patches=source_patches,
         )
 
     return UpgradeSources(schema_version=1, versions=versions)
@@ -108,6 +125,20 @@ def validate_manifest_compatibility(
             "Current package.version uninstall targets must exactly match manifest patches."
         )
 
+    manifest_sources = {
+        (patch.id, patch.destination, variant.firmware, variant.expected_sha256, variant.desired_sha256)
+        for patch in manifest.install.source_patches
+        for variant in patch.variants
+    }
+    current_sources = {
+        (item.id, item.destination, item.firmware, item.original_sha256, item.desired_sha256)
+        for item in current_entry.source_patches
+    }
+    if manifest_sources != current_sources:
+        raise CompatibilityValidationError(
+            "Current package.version source-patch baselines must exactly match the manifest."
+        )
+
 
 def allowed_target_tuples_for_version(
     upgrade_sources: UpgradeSources, package_version: str
@@ -118,6 +149,47 @@ def allowed_target_tuples_for_version(
             f"Unsupported installed package version: {package_version}"
         )
     return {target.target_tuple for target in source.allowed_patch_targets}
+
+
+def _parse_source_patches(entry: dict[str, Any], version: str) -> tuple[UpgradeSourcePatch, ...]:
+    raw = entry.get("source_patches", [])
+    if not isinstance(raw, list):
+        raise CompatibilityValidationError(f"source_patches for {version} must be a list.")
+    result: list[UpgradeSourcePatch] = []
+    seen_ids: set[str] = set()
+    seen_destinations: set[str] = set()
+    seen_variants: set[tuple[str, str]] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise CompatibilityValidationError(f"source_patches entries for {version} must be mappings.")
+        patch_id = _require_str(item, "id")
+        destination = validate_relative_path(
+            _require_str(item, "destination"), allowed_roots=("klippy",)
+        )
+        if not destination.startswith("klippy/extras/"):
+            raise CompatibilityValidationError("Source-patch destinations must stay under klippy/extras/.")
+        firmware = _require_str(item, "firmware")
+        original_sha = _require_sha256(item, "original_sha256")
+        desired_sha = _require_sha256(item, "desired_sha256")
+        key = (patch_id, firmware)
+        if patch_id in seen_ids and destination not in seen_destinations:
+            raise CompatibilityValidationError("Source-patch IDs must use one destination.")
+        if destination in seen_destinations and patch_id not in seen_ids:
+            raise CompatibilityValidationError("Source-patch destinations must use one ID.")
+        if key in seen_variants:
+            raise CompatibilityValidationError("Duplicate source-patch firmware baseline.")
+        seen_ids.add(patch_id)
+        seen_destinations.add(destination)
+        seen_variants.add(key)
+        result.append(UpgradeSourcePatch(patch_id, destination, firmware, original_sha, desired_sha))
+    return tuple(result)
+
+
+def _require_sha256(mapping: dict[str, Any], key: str) -> str:
+    value = _require_str(mapping, key).lower()
+    if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+        raise CompatibilityValidationError(f"{key} must be SHA-256 hex.")
+    return value
 
 
 def _require_str(mapping: dict[str, Any], key: str) -> str:
