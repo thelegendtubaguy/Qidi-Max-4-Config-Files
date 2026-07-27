@@ -1230,5 +1230,29 @@
     "public_command": "PA_CALIBRATION_UNVALIDATED",
     "reason": "Identical K=0.020 cycles failed repeatability and polarity gates before candidate selection. Longer low-flow lead and thermal soaking did not resolve the instability."
   },
+  "deployment_after_validation": {
+    "final_runtime": {
+      "heater_target_c": 0.0,
+      "klipper": "ready",
+      "print_state": "standby",
+      "stock_bed_mesh_speed": 150.0,
+      "stock_chamber_max_temp": 150.0,
+      "stock_stepper_x_homing_speed": 50.0,
+      "stock_stepper_y_homing_speed": 50.0,
+      "stock_z_homing_retract": 10.0,
+      "stock_z_tilt_speed": 150.0,
+      "tltg_commands_present": false,
+      "tltg_named_files_present": false
+    },
+    "homing_source": {
+      "optimized_sha256_before_manual_restore": "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3",
+      "reason_not_reverted_by_ledger_uninstall": "The optimized source predated package 26.07.26.14 state and was not claimed by its ledger.",
+      "stock_firmware": "01.01.06.04",
+      "stock_sha256_after_manual_restore": "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0"
+    },
+    "package": "26.07.26.14",
+    "residual_cleanup": "Removed installer and staged/test directories, package archives and checksums, installer backups, system-preimage storage, runtime/update state, locks and activation markers, temporary capture artifacts, installer scripts, and compiled TLTG Python cache files.",
+    "uninstall": "Ledger-owned config, system, managed-tree, external-file, state, and auto-update resources were restored or removed. Automatic activation verification timed out after the completed file transaction; a manual Klipper service restart produced a new ready process, and a repeated uninstall reported nothing installed."
+  },
   "qualification": "Origin-cache acquisition remained GPIO-passive and preserved stock operation, but repeated K=0.020 cycles did not provide repeatable low-flow baseline, amplitude, polarity, or normalized transition metrics. No K sweep or candidate selection was attempted."
 }
