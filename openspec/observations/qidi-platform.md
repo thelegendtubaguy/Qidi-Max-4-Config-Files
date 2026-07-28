@@ -43,3 +43,4 @@ The 4 KiB batch increased from `1.324 MiB/s` to `35.617 MiB/s`; the 256 KiB batc
 - Stock QIDI macro names are consumed by Fluidd, QIDI Client, and vendor modules even when optimized wrappers supersede their behavior.
 - `G4 P...` adds fixed dead time; `M400` waits only for queued motion.
 - Stock globals with no repository caller may still be consumed by vendor components.
+- Config-confirmed QIDI Max 4 machine profiles installed with OrcaSlicer and QIDI Studio move to absolute `Z10` after `M1002 A1`, then apply `G92_ Z{10 - ((nozzle_temperature_initial_layer[initial_tool] - 130) / 14 - 5.0) / 100}` before first-layer priming.
