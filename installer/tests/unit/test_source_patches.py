@@ -31,7 +31,15 @@ from installer.runtime.source_patches import (
     validate_source_state,
 )
 from installer.runtime.process_restart import ProcessRestartError
-from installer.tests.helpers import REPO_ROOT, build_env, copy_base_runtime, homing_fixture_bytes, moonraker_urlopen, temp_path
+from installer.tests.helpers import (
+    REPO_ROOT,
+    build_env,
+    copy_base_runtime,
+    homing_fixture_bytes,
+    homing_sync_reset_fixture_bytes,
+    moonraker_urlopen,
+    temp_path,
+)
 
 
 class SourcePatchTests(unittest.TestCase):
@@ -40,6 +48,29 @@ class SourcePatchTests(unittest.TestCase):
 
     def _paths(self, root):
         return resolve_runtime_paths(bundle_root=REPO_ROOT, environ=build_env(root, moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats"))
+
+    def test_manifest_exposes_both_01010604_stock_variants(self):
+        patch = self.manifest.install.source_patches[0]
+        variants = tuple(
+            variant
+            for variant in patch.variants
+            if variant.firmware == "01.01.06.04"
+        )
+        self.assertEqual(len(variants), 2)
+        self.assertEqual(
+            {variant.expected_sha256 for variant in variants},
+            {
+                "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0",
+                "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761",
+            },
+        )
+        self.assertEqual(
+            {variant.source for variant in variants},
+            {
+                "klipper/qidi/homing.py",
+                "klipper/qidi/homing-sync-reset.py",
+            },
+        )
 
     def test_payload_compiles_hashes_and_has_required_timing_without_diagnostics(self):
         payload = REPO_ROOT / "installer/klipper/qidi/homing.py"
@@ -56,15 +87,62 @@ class SourcePatchTests(unittest.TestCase):
         self.assertNotIn("TLTG_HOME_TIMING", text)
         self.assertNotIn("TLTG_HOME_MACRO_TIMING", text)
 
+    def test_sync_reset_payload_compiles_preserves_vendor_behavior_and_has_optimized_timing(self):
+        payload = REPO_ROOT / "installer/klipper/qidi/homing-sync-reset.py"
+        value = payload.read_bytes()
+        self.assertEqual(
+            hashlib.sha256(value).hexdigest(),
+            "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a",
+        )
+        compile(value, str(payload), "exec")
+        regular = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
+        block_start = value.index(b"        # self.endstops[0][0].endstop_sync_reset()")
+        block_end = value.index(
+            b"        for mcu_endstop, name in self.endstops:", block_start
+        )
+        block = value[block_start:block_end]
+        stock_variant = homing_sync_reset_fixture_bytes()
+        stock_block_start = stock_variant.index(
+            b"        # self.endstops[0][0].endstop_sync_reset()"
+        )
+        stock_block_end = stock_variant.index(
+            b"        for mcu_endstop, name in self.endstops:", stock_block_start
+        )
+        self.assertEqual(block, stock_variant[stock_block_start:stock_block_end])
+        self.assertEqual(value.replace(block, b"", 1), regular)
+
+        text = value.decode("utf-8")
+        self.assertIn("target_obj.endstop_sync_reset()", text)
+        self.assertIn("Sync Reset executing via class", text)
+        self.assertIn("G4 P100", text)
+        self.assertIn("G4 P50", text)
+        self.assertIn('.25 if rails[0].get_name() in ("stepper_x", "stepper_y")', text)
+        self.assertNotIn("TLTG_HOME_TIME_MARK", text)
+        self.assertNotIn("TLTG_HOME_TIMING", text)
+        self.assertNotIn("TLTG_HOME_MACRO_TIMING", text)
+
     def test_stock_fixtures_match_supported_baselines(self):
-        fixtures = {
-            "01.01.06.03": "89428b465b7f3d62bd8b65b3155b8aa8e93cd917f59779e40a246b5d89ff8d71",
-            "01.01.06.04": "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0",
-        }
-        for firmware, expected in fixtures.items():
-            value = homing_fixture_bytes(firmware)
-            self.assertEqual(hashlib.sha256(value).hexdigest(), expected)
-            compile(value, firmware, "exec")
+        fixtures = (
+            (
+                "01.01.06.03",
+                homing_fixture_bytes("01.01.06.03"),
+                "89428b465b7f3d62bd8b65b3155b8aa8e93cd917f59779e40a246b5d89ff8d71",
+            ),
+            (
+                "01.01.06.04",
+                homing_fixture_bytes("01.01.06.04"),
+                "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0",
+            ),
+            (
+                "01.01.06.04-sync-reset",
+                homing_sync_reset_fixture_bytes(),
+                "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761",
+            ),
+        )
+        for name, value, expected in fixtures:
+            with self.subTest(source=name):
+                self.assertEqual(hashlib.sha256(value).hexdigest(), expected)
+                compile(value, name, "exec")
 
     def test_install_applies_stock_source_and_records_first_preimage(self):
         root = copy_base_runtime(); paths = self._paths(root)
@@ -95,6 +173,48 @@ class SourcePatchTests(unittest.TestCase):
                     "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3",
                 )
 
+    def test_install_preserves_sync_reset_variant_behavior_and_provenance(self):
+        root = copy_base_runtime(); paths = self._paths(root)
+        (root / "firmware_manifest.json").write_text(
+            json.dumps({"SOC": {"version": "01.01.06.04"}}), encoding="utf-8"
+        )
+        shutil.copytree(
+            REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares/01.01.06.04/config",
+            root / "config",
+            dirs_exist_ok=True,
+        )
+        stock = homing_sync_reset_fixture_bytes()
+        target = paths.managed_klipper_root / "klippy/extras/homing.py"
+        target.write_bytes(stock)
+
+        run_install(
+            paths,
+            self.manifest,
+            PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+
+        desired = (REPO_ROOT / "installer/klipper/qidi/homing-sync-reset.py").read_bytes()
+        self.assertEqual(target.read_bytes(), desired)
+        state = load_installed_state(root / "config/tltg_optimized_state.yaml")
+        self.assertEqual(state.source_patches[0].original_bytes, stock)
+        self.assertEqual(
+            state.source_patches[0].desired_sha256,
+            "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a",
+        )
+
+        compatibility = load_supported_upgrade_sources(
+            REPO_ROOT / "installer/supported_upgrade_sources.yaml"
+        )
+        run_uninstall(
+            paths,
+            self.manifest,
+            compatibility,
+            PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        self.assertEqual(target.read_bytes(), stock)
+
     def test_noninteractive_restart_failure_preserves_installed_state_and_marker(self):
         root = copy_base_runtime(); paths = self._paths(root)
 
@@ -116,8 +236,14 @@ class SourcePatchTests(unittest.TestCase):
         root = copy_base_runtime(); paths = self._paths(root)
         target = paths.managed_klipper_root / "klippy/extras/homing.py"
         target.write_bytes(b"unknown source")
-        with self.assertRaises(SourcePatchError):
+        with self.assertRaises(SourcePatchError) as raised:
             run_install(paths, self.manifest, PlainReporter(io.StringIO()), urlopen=moonraker_urlopen())
+        message = str(raised.exception)
+        self.assertIn("firmware 01.01.06.03", message)
+        self.assertIn(
+            hashlib.sha256(b"unknown source").hexdigest(), message
+        )
+        self.assertIn("accepted SHA-256", message)
         self.assertFalse(list(root.glob("tltg-optimized-macros-before-optimize-*.zip")))
 
     def test_already_desired_source_is_a_noop_without_ledger(self):

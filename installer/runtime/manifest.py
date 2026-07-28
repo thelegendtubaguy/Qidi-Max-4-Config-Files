@@ -280,22 +280,48 @@ def _parse_source_patches(install_raw: dict[str, Any], firmware: FirmwareSpec) -
         variants = tuple(
             SourcePatchVariantSpec(
                 firmware=_require_str(variant, "firmware"),
+                source=_validate_relative_path(
+                    variant.get("source", source), allowed_roots=("klipper",)
+                ),
                 expected_sha256=_require_sha256(variant, "expected_sha256"),
                 desired_sha256=_require_sha256(variant, "desired_sha256"),
             )
             for variant in _require_list_of_mapping(item, "variants")
         )
-        if {variant.firmware for variant in variants} != set(firmware.supported) or len(variants) != len(firmware.supported):
-            raise ManifestValidationError(f"Source patch {patch_id} must define exactly one variant per supported firmware.")
+        covered_firmwares = {variant.firmware for variant in variants}
+        if covered_firmwares != set(firmware.supported):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} must define at least one variant per supported firmware."
+            )
+        expected_keys = {
+            (variant.firmware, variant.expected_sha256) for variant in variants
+        }
+        desired_keys = {
+            (variant.firmware, variant.desired_sha256) for variant in variants
+        }
+        if len(expected_keys) != len(variants):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} has duplicate firmware stock hashes."
+            )
+        if len(desired_keys) != len(variants):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} has duplicate firmware desired hashes."
+            )
         patches.append(SourcePatchSpec(id=patch_id, source=source, destination=destination, variants=variants))
     return tuple(patches)
 
 
-def select_source_patch_variant(patch: SourcePatchSpec, firmware_version: str) -> SourcePatchVariantSpec:
-    matches = [variant for variant in patch.variants if variant.firmware == firmware_version]
-    if len(matches) != 1:
-        raise ManifestValidationError(f"Source patch {patch.id} does not support firmware {firmware_version}.")
-    return matches[0]
+def source_patch_variants_for_firmware(
+    patch: SourcePatchSpec, firmware_version: str
+) -> tuple[SourcePatchVariantSpec, ...]:
+    matches = tuple(
+        variant for variant in patch.variants if variant.firmware == firmware_version
+    )
+    if not matches:
+        raise ManifestValidationError(
+            f"Source patch {patch.id} does not support firmware {firmware_version}."
+        )
+    return matches
 
 
 def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec | None:

@@ -32,13 +32,19 @@ from installer.tests.helpers import (
     build_env,
     copy_base_runtime,
     homing_fixture_bytes,
+    homing_sync_reset_fixture_bytes,
     moonraker_urlopen,
     temp_path,
 )
 
 
-FIRMWARES = ("01.01.06.03", "01.01.06.04")
 DESIRED_HOMING_SHA256 = "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+SYNC_RESET_DESIRED_HOMING_SHA256 = "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a"
+SOURCE_CASES = (
+    ("01.01.06.03", "standard", DESIRED_HOMING_SHA256),
+    ("01.01.06.04", "standard", DESIRED_HOMING_SHA256),
+    ("01.01.06.04", "sync-reset", SYNC_RESET_DESIRED_HOMING_SHA256),
+)
 
 
 class SourcePatchLifecycleMatrixTests(unittest.TestCase):
@@ -48,7 +54,7 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
             REPO_ROOT / "installer/supported_upgrade_sources.yaml"
         )
 
-    def _fixture(self, firmware: str):
+    def _fixture(self, firmware: str, *, source_variant: str = "standard"):
         printer_root = copy_base_runtime()
         if firmware == "01.01.06.04":
             shutil.copytree(
@@ -67,7 +73,11 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats",
             ),
         )
-        stock_source = homing_fixture_bytes(firmware)
+        stock_source = (
+            homing_sync_reset_fixture_bytes()
+            if source_variant == "sync-reset"
+            else homing_fixture_bytes(firmware)
+        )
         source = paths.managed_klipper_root / "klippy/extras/homing.py"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_bytes(stock_source)
@@ -90,10 +100,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 value,
             )
 
-    def test_fresh_stock_install_applies_source_and_records_preimage_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, paths, stock_source = self._fixture(firmware)
+    def test_fresh_stock_install_applies_source_and_records_preimage_for_all_variants(self):
+        for firmware, source_variant, desired_sha256 in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, paths, stock_source = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 self._run_install(paths)
 
                 self._assert_homing_speed(printer_root, "100")
@@ -101,7 +113,7 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                     hashlib.sha256(
                         (paths.managed_klipper_root / "klippy/extras/homing.py").read_bytes()
                     ).hexdigest(),
-                    DESIRED_HOMING_SHA256,
+                    desired_sha256,
                 )
                 state = load_installed_state(
                     printer_root / "config/tltg_optimized_state.yaml"
@@ -112,10 +124,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 self.assertEqual(entry.original_bytes, stock_source)
                 self.assertEqual(entry.original_sha256, hashlib.sha256(stock_source).hexdigest())
 
-    def test_2607131_upgrade_migrates_65_and_adds_source_ledger_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, paths, stock_source = self._fixture(firmware)
+    def test_2606151_upgrade_migrates_65_and_adds_source_ledger_for_all_variants(self):
+        for firmware, source_variant, _ in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, paths, stock_source = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 cfg = printer_root / "config/printer.cfg"
                 cfg.write_text(
                     cfg.read_text(encoding="utf-8").replace(
@@ -128,10 +142,10 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                     InstalledState(
                         schema_version=1,
                         package_id="qidi-max4-optimized",
-                        package_version="26.07.13.1",
+                        package_version="26.06.15.1",
                         runtime_firmware=firmware,
-                        backup_label="legacy-26.07.13.1",
-                        installed_at="2026-07-13T00:00:00Z",
+                        backup_label="legacy-26.06.15.1",
+                        installed_at="2026-06-15T00:00:00Z",
                         managed_tree=ManagedTreeState(
                             "config/tltg-optimized-macros", ()
                         ),
@@ -174,10 +188,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 self.assertEqual({entry.desired for entry in speeds.values()}, {"100"})
                 self.assertEqual(state.source_patches[0].original_bytes, stock_source)
 
-    def test_auto_update_child_source_activation_advances_checksum_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, _, _ = self._fixture(firmware)
+    def test_auto_update_child_source_activation_advances_checksum_for_all_variants(self):
+        for firmware, source_variant, desired_sha256 in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, _, _ = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 bundle_root = temp_path("auto-update-lifecycle-") / "tltg-optimized-macros"
                 bundle_root.mkdir()
                 (bundle_root / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
@@ -261,14 +277,16 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                             / "klipper/klippy/extras/homing.py"
                         ).read_bytes()
                     ).hexdigest(),
-                    DESIRED_HOMING_SHA256,
+                    desired_sha256,
                 )
                 self.assertFalse(paths.restart_marker_path.exists())
 
-    def test_source_write_failure_rolls_back_source_and_marker_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, paths, stock_source = self._fixture(firmware)
+    def test_source_write_failure_rolls_back_source_and_marker_for_all_variants(self):
+        for firmware, source_variant, _ in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, paths, stock_source = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 with mock.patch(
                     "installer.runtime.runner.mirror_tree",
                     side_effect=RuntimeError("force failure after source deployment"),
@@ -285,10 +303,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                     (printer_root / "config/tltg_optimized_state.yaml").exists()
                 )
 
-    def test_source_inclusive_restore_restores_stock_source_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, paths, stock_source = self._fixture(firmware)
+    def test_source_inclusive_restore_restores_stock_source_for_all_variants(self):
+        for firmware, source_variant, _ in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, paths, stock_source = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 install = self._run_install(paths)
                 assert install.backup_zip_path is not None
                 expected_config = load_backup_snapshot(
@@ -320,10 +340,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 )
                 self.assertFalse(paths.restart_marker_path.exists())
 
-    def test_uninstall_restores_stock_config_and_source_for_both_firmwares(self):
-        for firmware in FIRMWARES:
-            with self.subTest(firmware=firmware):
-                printer_root, paths, stock_source = self._fixture(firmware)
+    def test_uninstall_restores_stock_config_and_source_for_all_variants(self):
+        for firmware, source_variant, _ in SOURCE_CASES:
+            with self.subTest(firmware=firmware, source_variant=source_variant):
+                printer_root, paths, stock_source = self._fixture(
+                    firmware, source_variant=source_variant
+                )
                 self._run_install(paths)
 
                 run_uninstall(

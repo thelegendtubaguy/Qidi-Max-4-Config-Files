@@ -158,7 +158,7 @@ def _parse_source_patches(entry: dict[str, Any], version: str) -> tuple[UpgradeS
     result: list[UpgradeSourcePatch] = []
     seen_ids: set[str] = set()
     seen_destinations: set[str] = set()
-    seen_variants: set[tuple[str, str]] = set()
+    seen_variants: set[tuple[str, str, str]] = set()
     for item in raw:
         if not isinstance(item, dict):
             raise CompatibilityValidationError(f"source_patches entries for {version} must be mappings.")
@@ -171,13 +171,15 @@ def _parse_source_patches(entry: dict[str, Any], version: str) -> tuple[UpgradeS
         firmware = _require_str(item, "firmware")
         original_sha = _require_sha256(item, "original_sha256")
         desired_sha = _require_sha256(item, "desired_sha256")
-        key = (patch_id, firmware)
+        key = (patch_id, firmware, original_sha)
         if patch_id in seen_ids and destination not in seen_destinations:
             raise CompatibilityValidationError("Source-patch IDs must use one destination.")
         if destination in seen_destinations and patch_id not in seen_ids:
             raise CompatibilityValidationError("Source-patch destinations must use one ID.")
         if key in seen_variants:
-            raise CompatibilityValidationError("Duplicate source-patch firmware baseline.")
+            raise CompatibilityValidationError(
+                "Duplicate source-patch firmware stock baseline."
+            )
         seen_ids.add(patch_id)
         seen_destinations.add(destination)
         seen_variants.add(key)

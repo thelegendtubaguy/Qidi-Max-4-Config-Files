@@ -31,6 +31,13 @@ def homing_fixture_bytes(firmware: str) -> bytes:
     return value
 
 
+def homing_sync_reset_fixture_bytes() -> bytes:
+    return (
+        FIXTURES_ROOT
+        / "source-patches/01.01.06.04/homing-sync-reset.py"
+    ).read_bytes()
+
+
 def temp_path(prefix: str) -> Path:
     root = Path(tempfile.mkdtemp(prefix=prefix))
     _TEMP_ROOTS.append(root)

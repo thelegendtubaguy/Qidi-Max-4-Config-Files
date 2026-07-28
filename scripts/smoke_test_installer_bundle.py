@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from installer.runtime.manifest import load_manifest
 from installer.runtime.naming import (
     BUNDLE_ROOT_NAME,
     INSTALL_BACKUP_LABEL_PREFIX,
@@ -52,16 +53,26 @@ def main(argv: list[str] | None = None) -> int:
     for firmware in ("01.01.06.03", "01.01.06.04"):
         if not (bundle_root / f"installer/stock/qidi-max4-defaults/firmwares/{firmware}/config/printer.cfg").exists():
             raise SystemExit(f"bundle smoke test is missing {firmware} stock config snapshot")
-    payload = bundle_root / "installer/klipper/qidi/homing.py"
-    if not payload.is_file() or payload.is_symlink():
-        raise SystemExit("bundle smoke test is missing production homing.py payload")
-    payload_bytes = payload.read_bytes()
-    try:
-        compile(payload_bytes, str(payload), "exec")
-    except SyntaxError as exc:
-        raise SystemExit(f"bundle homing.py payload does not compile: {exc}") from exc
-    if hashlib.sha256(payload_bytes).hexdigest() != "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3":
-        raise SystemExit("bundle homing.py payload hash does not match package manifest")
+    package_manifest = load_manifest(bundle_root / "installer/package.yaml")
+    for patch in package_manifest.install.source_patches:
+        for variant in patch.variants:
+            payload = bundle_root / "installer" / variant.source
+            if not payload.is_file() or payload.is_symlink():
+                raise SystemExit(
+                    f"bundle smoke test is missing source payload: {variant.source}"
+                )
+            payload_bytes = payload.read_bytes()
+            try:
+                compile(payload_bytes, str(payload), "exec")
+            except SyntaxError as exc:
+                raise SystemExit(
+                    f"bundle source payload does not compile: {variant.source}: {exc}"
+                ) from exc
+            if hashlib.sha256(payload_bytes).hexdigest() != variant.desired_sha256:
+                raise SystemExit(
+                    "bundle source payload hash does not match package manifest: "
+                    f"{variant.source}"
+                )
     package_version = read_package_version(bundle_root / "installer/package.yaml")
     help_output = run_command([str(bundle_root / "install.sh"), "--help"], cwd=bundle_root, env=os.environ.copy())
     if help_output.returncode != 0:
