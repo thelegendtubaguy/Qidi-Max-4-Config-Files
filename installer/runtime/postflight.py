@@ -3,7 +3,7 @@ from __future__ import annotations
 from . import klipper_cfg
 from .ensure_lines import has_active_line
 from .errors import PreflightTargetsError
-from .manifest import select_source_patch_variant
+from .manifest import source_patch_variants_for_firmware
 from .mirror import collect_source_hashes, sha256_file
 from .models import (
     EnsureLineSpec,
@@ -43,8 +43,17 @@ def verify_install_postflight(
     if detected_firmware is not None:
         for patch in manifest.install.source_patches:
             path = paths.managed_klipper_root / patch.destination
-            desired = select_source_patch_variant(patch, detected_firmware).desired_sha256
-            if path.is_symlink() or not path.is_file() or sha256_file(path) != desired:
+            desired_hashes = {
+                variant.desired_sha256
+                for variant in source_patch_variants_for_firmware(
+                    patch, detected_firmware
+                )
+            }
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or sha256_file(path) not in desired_hashes
+            ):
                 missing_files.append(patch.destination)
     missing_lines = []
     for spec in manifest.postflight.verify_lines:

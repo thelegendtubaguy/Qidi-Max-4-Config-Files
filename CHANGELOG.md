@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.07.28.1
+- Added guarded support for both known QIDI firmware `01.01.06.04` `homing.py` variants while preserving each variant's endstop synchronization behavior.
+- Included live and accepted source hashes in unsupported managed-source drift errors.
+
 ## 26.07.03.2
 - Fixed `26.07.03.1` release tooling so the publish workflow can compare the previous package version without requiring the old manifest to match the current schema.
 

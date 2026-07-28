@@ -4,6 +4,8 @@
 
 - Supported QIDI Max 4 stock comparisons use `https://github.com/thelegendtubaguy/Qidi-Max4-Defaults`.
 - Firmware identity is exposed in `/home/qidi/update/firmware_manifest.json` at `SOC.version`.
+- **Runtime-confirmed:** [GitHub issue #71](https://github.com/thelegendtubaguy/Qidi-Max-4-Optimized/issues/71) reported firmware `01.01.06.04` with `/home/qidi/klipper/klippy/extras/homing.py` SHA-256 `0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761`. The attached file differs from the previously captured `01.01.06.04` SHA-256 `ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0` only by a conditional `endstop_sync_reset()` block before endstop `home_start()` setup.
+- Unresolved: `Qidi-Max4-Defaults` firmware snapshots currently contain `config/` and do not establish which `01.01.06.04` distribution or update path supplies each `homing.py` variant.
 - QIDI firmware packages can replace `/home/qidi/QIDI_Client`, restore animated touchscreen assets, and enable/start `algo_app.service`; opted-in system hardening therefore requires reconciliation rather than one-time migration.
 - Firmware `01.01.06.04` exposes the touchscreen through `qidi-client.service` with executable `/home/qidi/QIDI_Client/bin/qidiclient`.
 - Firmware `01.01.06.04` exposes AI detection through `algo_app.service`, executable `/usr/local/bin/algo_app/main`, and port `9010`; the observed `/version` response reported `sw_version=1.1.0`.

@@ -22,7 +22,7 @@ from .backup import (
     UNKNOWN_FIRMWARE_TOKEN,
 )
 from .firmware import detect_firmware_version
-from .manifest import select_source_patch_variant
+from .manifest import source_patch_variants_for_firmware
 from .models import Manifest, RuntimePaths
 from .path_safety import ensure_external_path_has_no_symlink_components
 from .process_restart import read_printer_info, write_restart_marker
@@ -249,9 +249,15 @@ def _validate_external_restore_targets(
             raise RestoreHelperError(
                 f"External restore target is not a regular file: {destination}"
             )
-        variant = select_source_patch_variant(patches[patch_id], firmware)
+        variants = source_patch_variants_for_firmware(
+            patches[patch_id], firmware
+        )
         archived_hash = hashlib.sha256(archived_bytes).hexdigest()
-        accepted_hashes = {variant.expected_sha256, variant.desired_sha256}
+        accepted_hashes = {
+            value
+            for variant in variants
+            for value in (variant.expected_sha256, variant.desired_sha256)
+        }
         if archived_hash not in accepted_hashes:
             raise RestoreHelperError(
                 f"External backup source is not valid for firmware {firmware}: {destination}"
