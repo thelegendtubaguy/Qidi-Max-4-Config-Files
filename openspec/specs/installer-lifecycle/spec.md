@@ -21,7 +21,8 @@ The installer SHALL apply configuration changes or legacy stock restoration only
 
 #### Scenario: Firmware-specific expectations are enforced
 - **WHEN** guarded preflight runs for supported firmware
-- **THEN** configuration and source expectations come from that firmware's manifest variant
+- **THEN** configuration expectations come from that firmware's manifest variant
+- **AND** managed-source expectations come from the firmware and matching live stock preimage
 - **AND** targets belonging only to another firmware do not affect preflight
 
 #### Scenario: Current 01.01.06.04 stock baseline is selected
@@ -106,18 +107,21 @@ The installer SHALL manage vendor Python only through validated firmware-scoped 
 #### Scenario: Source manifest and preflight are trusted
 - **WHEN** a managed-source entry is validated
 - **THEN** its ID and destination are unique
-- **AND** its bundle source is a non-symlink regular file under `installer/klipper/`
+- **AND** every variant's bundle source is a non-symlink regular file under `installer/klipper/`
 - **AND** its destination is a relative non-traversing path under `klippy/extras/`
-- **AND** each entry defines exactly one variant for every supported firmware with exact expected and desired SHA-256 values
-- **AND** a live target is accepted only when it matches the selected stock hash, selected desired hash, or a desired hash proven by valid prior state
-- **AND** unknown content, symlinks, or path escape fail before backup or live writes
+- **AND** each entry defines at least one variant for every supported firmware with unique stock and desired SHA-256 values within that firmware
+- **AND** a live target matching a declared stock hash selects that variant's payload
+- **AND** a live target is accepted only when it matches a selected stock hash, selected desired hash, or a desired hash proven by valid prior state
+- **AND** unknown content reports the firmware plus live and accepted SHA-256 values and fails before backup or live writes
+- **AND** symlinks or path escape fail before backup or live writes
 
 #### Scenario: Source deployment preserves provenance
 - **WHEN** a stock or prior-managed source is changed
 - **THEN** the pending-activation marker exists before the first source write
 - **AND** the first verified original bytes, SHA-256, and mode are retained across upgrades
+- **AND** the selected baseline-specific payload preserves vendor behavior present in that stock preimage
 - **AND** the payload is replaced atomically in the destination directory with its mode preserved
-- **AND** Python syntax and the declared desired SHA-256 are verified before installed state is committed
+- **AND** Python syntax and the selected variant's declared desired SHA-256 are verified before installed state is committed
 
 #### Scenario: Source state is validated before trust
 - **WHEN** a schema-version-1 installed-state ledger is loaded

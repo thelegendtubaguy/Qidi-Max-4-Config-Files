@@ -270,7 +270,10 @@ def estimate_install_free_bytes(*, paths: RuntimePaths, manifest: Manifest) -> i
         for patch in (*manifest.patches.set_options, *manifest.patches.delete_sections)
     )
     source_writes = sum(
-        safety.file_size(paths.installer_root / patch.source)
+        max(
+            safety.file_size(paths.installer_root / variant.source)
+            for variant in patch.variants
+        )
         for patch in manifest.install.source_patches
     )
     state_write = 8 * 1024 + sum(safety.file_size(path) for path in external_paths)

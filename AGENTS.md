@@ -18,6 +18,7 @@
 7. Update `openspec/specs/` when desired behavior changes, `openspec/contracts/` when a machine-checked path contract changes, and `openspec/observations/` when external/vendor evidence changes.
 8. Translate comments only unless explicitly told otherwise. Leave runtime/status/warning strings unchanged unless the affected string set is approved.
 9. Keep `README.md` operator-focused. Do not link internal agent references under `openspec/` from the README unless explicitly requested.
+10. Kevin O'Connor's `kevin@koconnor.net` may be retained only in upstream Klipper GPL copyright headers; this approved repository-content email exception requires no additional confirmation.
 
 ## Git workflow
 

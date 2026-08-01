@@ -144,6 +144,7 @@ class PreflightSpec:
 @dataclass(frozen=True)
 class SourcePatchVariantSpec:
     firmware: str
+    source: str
     expected_sha256: str
     desired_sha256: str
 

@@ -29,13 +29,15 @@ The optimized configuration and managed QIDI homing payload SHALL apply X/Y spee
 #### Scenario: Closed-loop safety is retained
 - **WHEN** X or Y homes
 - **THEN** QIDI's two-strike sequence, `20 mm` retract, second-strike tolerance validation, retry limit, endstop reset, controller-state ordering, and final macro backoff remain active
+- **AND** the firmware `01.01.06.04` stock variant with SHA-256 `0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761` retains its conditional `endstop_sync_reset()` behavior before homing and probing moves
+- **AND** stock variants without that synchronization-reset block do not gain it
 - **AND** an in-tolerance second strike succeeds without another retry
 - **AND** an out-of-tolerance strike retries and exceeding the retry limit remains an error
 
-#### Scenario: Production payload is valid and excludes diagnostics
-- **WHEN** the managed `homing.py` payload is built or inspected
+#### Scenario: Production payloads are valid and exclude project diagnostics
+- **WHEN** a managed `homing.py` payload is built or inspected
 - **THEN** firmware `01.01.06.03` recovery scripts keep `G4 P50` and `SET_HOMING_MODE STEPPER=y VALUE=2` on separate G-code lines
-- **AND** Python source compiles and matches the desired SHA-256 declared in `installer/package.yaml`
+- **AND** each Python source compiles and matches its variant-specific desired SHA-256 declared in `installer/package.yaml`
 - **AND** temporary wall-clock logging and `TLTG_HOME_TIMING`, `TLTG_HOME_MACRO_TIMING`, and `TLTG_HOME_TIME_MARK` commands are absent
 
 ### Requirement: Optimized homing, probing, mesh, and offset handling
@@ -101,6 +103,7 @@ OrcaSlicer and QIDI Studio start/end packs SHALL remain functionally aligned whi
 - **WHEN** front-bed room exists relative to first-layer bounds
 - **THEN** the prime line is placed in front of those bounds
 - **AND** otherwise uses the fixed front-center fallback
+- **AND** QIDI's nozzle-temperature Z compensation is applied from the first-layer target at a known absolute Z reference after mesh and saved-offset application
 - **AND** first-layer nozzle temperature is established before extrusion
 - **AND** the prime extrusion remains attributed to the selected initial tool
 

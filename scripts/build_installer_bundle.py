@@ -111,16 +111,20 @@ def main(argv: list[str] | None = None) -> int:
 
 def validate_source_payloads(manifest) -> None:
     for patch in manifest.install.source_patches:
-        payload = REPO_ROOT / "installer" / patch.source
-        if payload.is_symlink() or not payload.is_file():
-            raise ValueError(f"Source patch payload is not a regular file: {payload}")
-        value = payload.read_bytes()
-        compile(value, str(payload), "exec")
-        digest = hashlib.sha256(value).hexdigest()
         for variant in patch.variants:
+            payload = REPO_ROOT / "installer" / variant.source
+            if payload.is_symlink() or not payload.is_file():
+                raise ValueError(
+                    f"Source patch payload is not a regular file: {payload}"
+                )
+            value = payload.read_bytes()
+            compile(value, str(payload), "exec")
+            digest = hashlib.sha256(value).hexdigest()
             if digest != variant.desired_sha256:
                 raise ValueError(
-                    f"Source patch payload hash does not match {patch.id} for {variant.firmware}"
+                    "Source patch payload hash does not match "
+                    f"{patch.id} for {variant.firmware} stock "
+                    f"{variant.expected_sha256}"
                 )
 
 

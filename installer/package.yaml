@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.07.26.2"
+  version: "26.07.28.1"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -31,6 +31,7 @@ package:
     - "26.07.13.2"
     - "26.07.26.1"
     - "26.07.26.2"
+    - "26.07.28.1"
 
 firmware:
   supported:
@@ -105,6 +106,10 @@ install:
         - firmware: "01.01.06.04"
           expected_sha256: "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0"
           desired_sha256: "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+        - firmware: "01.01.06.04"
+          source: "klipper/qidi/homing-sync-reset.py"
+          expected_sha256: "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761"
+          desired_sha256: "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a"
 
 patches:
   set_options:
