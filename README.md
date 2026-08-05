@@ -67,18 +67,6 @@ The macro appears in Fluidd's Macros panel after install and Klipper restart. If
 
 ![Fluidd TLTG_SET_BOX_TEMP macro](.github/images/fluidd-tltg-set-box-temp-macro.png)
 
-### Reset QIDI Box tool mappings
-
-Successful optimized prints reset existing `value_t0` through `value_t15` mappings so each logical tool maps to the matching physical slot. Touchscreen selections and runout remaps remain active for the current print; cancelled, failed, and interrupted prints preserve their mappings for operator recovery.
-
-Reset mappings manually while the printer is idle:
-
-```gcode
-TLTG_RESET_TOOL_MAPPINGS
-```
-
-The macro is rejected while printing or paused.
-
 ### Helpful Klipper tools
 
 After install and Klipper restart, the optimized macro set includes:
@@ -87,11 +75,14 @@ After install and Klipper restart, the optimized macro set includes:
 TLTG_PROBE_ACCURACY_CENTER
 TLTG_CORNER_BED_SCREW_CHECK
 SCREWS_TILT_CALCULATE
+TLTG_RESET_TOOL_MAPPINGS
 ```
 
 `TLTG_PROBE_ACCURACY_CENTER [SAMPLES=20]` homes, moves to `X195 Y195 Z10`, and runs Klipper `PROBE_ACCURACY`.
 
 `TLTG_CORNER_BED_SCREW_CHECK` homes, runs `Z_TILT_ADJUST`, and runs `SCREWS_TILT_CALCULATE`.
+
+`TLTG_RESET_TOOL_MAPPINGS` restores QIDI Box tool-to-slot identity mappings while the printer is idle. It is rejected while printing or paused.
 
 ### Filament runout sensor
 
