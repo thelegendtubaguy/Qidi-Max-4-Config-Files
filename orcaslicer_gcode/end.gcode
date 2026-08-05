@@ -7,7 +7,6 @@ OPTIMIZED_END_NOZZLE_COOLDOWN_START EXHAUST_SPEED={complete_print_exhaust_fan_sp
 {else}
 OPTIMIZED_END_NOZZLE_COOLDOWN_START EXHAUST_SPEED=0
 {endif}
-_TLTG_RESET_TOOL_MAPPINGS
 {if max_layer_z < max_print_height / 2}G1 Z{min(max_print_height, max_print_height / 2 + 10)} F600{else}G1 Z{min(max_print_height, max_layer_z + 3)} F600{endif}
 OPTIMIZED_END_STAGED_NOZZLE_WIPE
 PRINT_END

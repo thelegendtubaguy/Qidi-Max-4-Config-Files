@@ -27,7 +27,6 @@ None.
 ## Impact
 
 - Installer mapping reconciliation under `installer/runtime/box_enablement.py` and its install-mode integration.
-- Optimized QIDI Box filament macros under `installer/klipper/tltg-optimized-macros/`.
-- OrcaSlicer and QIDI Studio end G-code ordering under `orcaslicer_gcode/` and `qidistudio_gcode/`.
-- Installer, macro, and slicer validation covering interactive and noninteractive installs, automatic updates, normal completion, cancellation, and manual reset.
+- Optimized QIDI Box filament macros under `installer/klipper/tltg-optimized-macros/`, without new tool-mapping commands in slicer G-code.
+- Installer and macro validation covering interactive and noninteractive installs, automatic updates, normal completion, cancellation, and manual reset.
 - Package metadata in `installer/package.yaml`, `installer/supported_upgrade_sources.yaml`, and optimized globals, plus `CHANGELOG.md` release notes.

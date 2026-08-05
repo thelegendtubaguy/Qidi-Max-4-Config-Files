@@ -25,9 +25,9 @@ The installer currently creates missing mappings and treats noninteractive confi
 
 ### Use print boundaries instead of mapping provenance
 
-Start-time reconciliation writes identity values only for missing or empty entries in `0` through `min(box_count * 4, 16) - 1`. It leaves every non-empty mapping unchanged before `OPTIMIZED_START_PRINT_FILAMENT_PREP` and `BOX_PRINT_START` consume it.
+`OPTIMIZED_START_PRINT_FILAMENT_PREP` invokes start-time reconciliation before its generated commands consume vendor mappings. Reconciliation writes identity values only for missing or empty entries in `0` through `min(box_count * 4, 16) - 1` and leaves every non-empty mapping unchanged before `BOX_PRINT_START` executes. Because Klipper renders the enclosing macro before executing the helper, the enclosing template uses matching identity defaults for missing mappings.
 
-Normal slicer end first completes `OPTIMIZED_END_PRINT_FILAMENT_PREP`, then invokes `OPTIMIZED_END_NOZZLE_COOLDOWN_START`, and then normalizes mappings. This allows retention or unload to use the active vendor mapping and starts thermal shutdown before saved-variable writes.
+`OPTIMIZED_END_PRINT_FILAMENT_PREP` arms a volatile reset only after retention or unload commands complete. The existing slicer sequence then invokes `OPTIMIZED_END_NOZZLE_COOLDOWN_START`, which starts thermal shutdown before consuming the arm and normalizing mappings during an unpaused active print.
 
 A provenance tracker was rejected because `value_tN`, runout counters, and the recovered vendor interfaces do not reliably distinguish screen selection from runout replacement across restart and interruption paths.
 
@@ -35,7 +35,7 @@ A provenance tracker was rejected because `value_tN`, runout counters, and the r
 
 An internal ensure macro performs missing-only start repair. An internal reset macro examines all indices `0` through `15`, rewrites each existing non-identity or empty value to `slotN`, and creates absent values only when the index is inside the active Box range. Both helpers emit `SAVE_VARIABLE` only when a value changes.
 
-`TLTG_RESET_TOOL_MAPPINGS` delegates to the internal reset only when the stock print-state predicates all indicate idle: idle-timeout is not printing, virtual SD is inactive, and pause/resume is not paused. Normal slicer end invokes the internal reset because the print remains active during end G-code.
+`TLTG_RESET_TOOL_MAPPINGS` delegates to the internal reset only when the stock print-state predicates all indicate idle: idle-timeout is not printing, virtual SD is inactive, and pause/resume is not paused. The cooldown macro consumes the internal end-prep arm only while an unpaused print remains active, clears the arm without resetting when the print is no longer active, and every optimized start clears a stale arm.
 
 Embedding reset in stock `PRINT_END` was rejected because stock cancellation calls that macro and `config/klipper-macros-qd/start_end.cfg` is stock-mapped.
 
@@ -45,9 +45,9 @@ Every installer mode continues to create missing active mappings before alignmen
 
 The mapping values stay outside `tltg_optimized_state.yaml`; uninstall does not restore them.
 
-### Keep slicer packs and the start-path contract aligned
+### Keep mapping orchestration in Klipper configuration
 
-OrcaSlicer and QIDI Studio start G-code invoke missing-only reconciliation immediately before optimized filament preparation. Both end packs invoke reset after their cooldown-start command while retaining slicer-specific placeholder restrictions. The start-print path contract records the new reconciliation ordering and generated views are regenerated.
+OrcaSlicer and QIDI Studio retain their existing start and end G-code. `OPTIMIZED_START_PRINT_FILAMENT_PREP`, `OPTIMIZED_END_PRINT_FILAMENT_PREP`, and `OPTIMIZED_END_NOZZLE_COOLDOWN_START` coordinate reconciliation through optimized Klipper macro calls and volatile macro state. The start-print path contract records the common macro-side reconciliation ordering and generated views are regenerated.
 
 ### Release as 26.08.05.1
 
@@ -56,6 +56,7 @@ OrcaSlicer and QIDI Studio start G-code invoke missing-only reconciliation immed
 ## Risks / Trade-offs
 
 - [Interrupted prints retain a stale mapping] → Preserve unresolved physical state and provide the idle-only reset command for deliberate recovery.
+- [An interrupted end leaves reset state armed] → Consume the arm only during an unpaused active print, clear it without normalization when cooldown runs idle, and clear stale state at the next optimized start.
 - [A successful print leaves filament physically retained in a slot whose logical mapping is reset] → Record retained physical-slot metadata before normalization; the next screen selection or direct identity tool determines whether guarded reuse is valid.
 - [Repeated saved-variable writes add storage churn] → Emit writes only for missing, empty, or non-identity values.
 - [A vendor application rewrites mappings after slicer end] → Keep normalization after cooldown start but before `PRINT_END`, while the active job still owns the sequence.

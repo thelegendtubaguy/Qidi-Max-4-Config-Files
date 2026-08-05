@@ -150,6 +150,7 @@ Optimized print and operator macros SHALL preserve mappings needed by the active
 #### Scenario: Print start repairs only missing active mappings
 - **WHEN** optimized start G-code runs with `box_count` requiring logical tools `0` through `min(box_count * 4, 16) - 1`
 - **THEN** each missing or empty active `value_tN` is saved as `'slotN'` before optimized filament preparation consumes mappings
+- **AND** reconciliation is invoked by optimized Klipper macros without adding mapping commands to OrcaSlicer or QIDI Studio G-code
 - **AND** every existing non-empty mapping is preserved
 - **AND** Box-unavailable or non-Box start remains available
 
@@ -159,6 +160,7 @@ Optimized print and operator macros SHALL preserve mappings needed by the active
 - **AND** each existing `value_t0` through `value_t15` that is empty or differs from `'slotN'` is saved as `'slotN'`
 - **AND** absent mappings are created only within the active Box range
 - **AND** unchanged identity mappings are not rewritten
+- **AND** the existing slicer end sequence requires no additional tool-mapping command
 - **AND** normalization completes before `PRINT_END`
 
 #### Scenario: Interrupted prints preserve current mappings

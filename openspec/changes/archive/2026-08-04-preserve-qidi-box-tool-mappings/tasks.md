@@ -7,9 +7,9 @@
 ## 2. Runtime Mapping Lifecycle
 
 - [x] 2.1 Add missing-only start reconciliation, differential identity reset, and the idle-only `TLTG_RESET_TOOL_MAPPINGS` console command.
-- [x] 2.2 Invoke missing-only reconciliation before optimized filament start in both slicer packs and update the start-print path contract.
-- [x] 2.3 Invoke identity reset after end filament prep and nozzle cooldown start in both slicer packs without adding reset to cancellation or error paths.
-- [x] 2.4 Add macro and slicer contract coverage for mapping scope, idle safety, start preservation, successful-end ordering, and interrupted-print exclusion.
+- [x] 2.2 Invoke missing-only reconciliation from optimized filament start and update the start-print path contract without changing slicer G-code.
+- [x] 2.3 Arm identity reset after end filament prep and consume it after nozzle cooldown starts during normal active-print completion.
+- [x] 2.4 Add macro contract coverage for mapping scope, idle safety, macro-side orchestration, successful-end ordering, and interrupted-print exclusion.
 - [x] 2.5 Document `TLTG_RESET_TOOL_MAPPINGS` for Fluidd and console operators.
 
 ## 3. Release Metadata
