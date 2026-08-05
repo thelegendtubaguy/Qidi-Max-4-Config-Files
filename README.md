@@ -155,3 +155,7 @@ See [TESTING](TESTING.md) to help validate releases.
 ## Development
 
 For development documentation, see [DEVELOPMENT](DEVELOPMENT.md).
+
+## License
+
+Repository-authored content is licensed under [GPLv3](LICENSE). Third-party components and license texts are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
