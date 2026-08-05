@@ -1,6 +1,6 @@
 # QIDI Box material metadata observations
 
-These observations apply to QIDI Max 4 firmware `01.01.06.04`.
+Runtime mappings apply to QIDI Max 4 firmware `01.01.06.04`; the `.05` missing-key behavior is config-confirmed from `klipper/klippy/extras/save_variables.py`.
 
 Saved variables store IDs:
 
@@ -19,6 +19,8 @@ filament_slot2 = 18 -> ASA
 color_slot2 = 2 -> #060606
 vendor_slot2 = 0 -> Generic
 ```
+
+Firmware `01.01.06.05` changes only the fallback for absent `filament_slot0..16` and `color_slot0..16` keys from ID `0` to ID `1`. Existing persisted keys are unchanged, `vendor_slot0..16` fallback behavior is unchanged, and `config/officiall_filas_list.cfg` retains ID `1` as `PLA Rapido` and color `#FAFAFA`.
 
 ## Filaments
 

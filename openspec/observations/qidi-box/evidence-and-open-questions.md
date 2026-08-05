@@ -1,6 +1,6 @@
 # QIDI Box evidence and unresolved behavior
 
-The QIDI Box evidence applies to QIDI Max 4 firmware `01.01.06.04`.
+Runtime QIDI Box evidence applies to QIDI Max 4 firmware `01.01.06.04`; `01.01.06.05` findings are config-confirmed, harness-recovered, or static-recovered where explicitly labeled.
 
 ## Evidence inventory
 
@@ -11,6 +11,8 @@ The QIDI Box evidence applies to QIDI Max 4 firmware `01.01.06.04`.
 | Captured `box.cfg`, `box_config.py`, `officiall_filas_list.cfg`, and qidiclient strings | Hardware pins, generated topology, metadata maps, UI/object names, detection/update strings | Strings prove references, not execution. |
 | Fake Klipper harnesses for compiled modules | Script fragments, constants, command formats, saved-variable writes, branch candidates | Fake objects can select invalid branches or omit required context. |
 | Aarch64 symbols, strings, and disassembly | Function boundaries, ownership, error strings, unresolved target locations | Cython source-level DWARF was absent; instruction flow alone is not a reliable high-level predicate source. |
+| `01.01.06.04`/`.05` ARM64 Python 3.9 differential execution | Changed command traces, flow selection, mapping scan, and virtual-SD lookup for identical controlled inputs | Fake Klipper objects do not prove physical outcomes or all native branch predicates. |
+| `01.01.06.05` `save_variables.py` source | Missing metadata-key defaults | Persisted runtime values bypass these defaults. |
 
 Captured extension modules were aarch64 Cython shared objects with debug-info markers but no useful Cython line/variable DWARF. Static function address/size inventories are intentionally not retained because readable harness/runtime behavior supersedes them.
 
@@ -27,10 +29,13 @@ A command returning `ok` proves acceptance in that captured state; it does not p
 
 - Live loaded-slot RFID commands were accepted without `QDE_004_011`; the conflicting fake-harness guard is not treated as live behavior.
 - `slot16` can reach `EXTRUDER_LOAD` when a tool mapping is absent; any special behavior is downstream and remains unresolved.
-- `BOX_PRINT_START` saved-variable writes are confirmed by harness output; prior uncertainty about whether it mutates state is obsolete.
+- **Harness-recovered:** `BOX_PRINT_START` writes saved-variable state; prior uncertainty about the emitted writes is obsolete, while live mutation remains unresolved.
 - Generated and runtime sensor names `heater_temp_a_boxN` / `heater_temp_b_boxN` supersede the incomplete `box1_env` inventory.
 - Heater target may be active while `dry_state=0`; `heater_generic heater_boxN.target` is the heater-state source.
 - The 2026-06-13 two-Box topology supersedes one-Box assumptions about maximum active slots but does not invalidate the earlier loaded-slot state/schema capture.
+- **Harness-recovered for `.05`:** `switch_next_slot()` scans `value_t0` through `value_t15` instead of relying on `get_key_by_value(...)`.
+- **Harness-recovered for `.05`:** external-spool `LOAD` with slot `16`, filament present, and empty `last_load_slot` selects flow `6` instead of flow `0`.
+- **Static-recovered for `.05`:** public Box classes, method signatures, defaults, and recovered `QDE_004_*` code sets are unchanged; this does not establish unchanged internal behavior.
 
 ## Unresolved behavior
 
@@ -38,7 +43,8 @@ A command returning `ok` proves acceptance in that captured state; it does not p
 
 - Exact live `BOX_PRINT_START` predicates for same-slot reuse, changed slot, unsynced state, cut-before-unload, and direct-feed `slot16`.
 - Live `EXTRUDER_LOAD`, `EXTRUDER_UNLOAD`, and `SLOT_UNLOAD` sensor gates, retries, state writes, and failure recovery.
-- Real slot/extruder synchronization movement, unbind behavior, prompt movement, and `switch_next_slot()` auto-reload behavior.
+- Exact `.05` `EXTRUDER_LOAD` retry threshold/order around `diff_mv`, `box_autofeed`, `retry_success`, and `limit_a_state`.
+- Real slot/extruder synchronization movement, unbind behavior, prompt movement, and `.05` `switch_next_slot()` auto-reload movement after target selection.
 - Live task-queue normalization before `_decide_flow_id()`, flow progress semantics, and completion predicates.
 
 ### RFID and metadata
@@ -71,3 +77,4 @@ A command returning `ok` proves acceptance in that captured state; it does not p
 - RFID validation requires a known tagged QIDI spool aligned to a confirmed reader.
 - Autofeed, feeder movement, retry, resume, and failure-path validation require operator-approved physical preflight and live stop capability.
 - Changes based only on fake-harness predicates must remain guarded until live evidence exists.
+- `.05` load/retry, slot-selection, external-spool, and unload findings may guide compatibility tests but do not authorize live motion tests or repository replacements for vendor modules.

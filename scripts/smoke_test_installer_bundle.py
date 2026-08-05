@@ -50,9 +50,34 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("bundle smoke test is missing restore.sh")
     if not (bundle_root / "installer/system/qidiclient-static-gifs.tar.gz").exists():
         raise SystemExit("bundle smoke test is missing qidiclient static GIF archive")
-    for firmware in ("01.01.06.03", "01.01.06.04"):
-        if not (bundle_root / f"installer/stock/qidi-max4-defaults/firmwares/{firmware}/config/printer.cfg").exists():
+    snapshot_base = bundle_root / "installer/stock/qidi-max4-defaults/firmwares"
+    for firmware in ("01.01.06.03", "01.01.06.04", "01.01.06.05"):
+        snapshot_root = snapshot_base / firmware / "config"
+        printer_config = snapshot_root / "printer.cfg"
+        if not printer_config.exists():
             raise SystemExit(f"bundle smoke test is missing {firmware} stock config snapshot")
+        for excluded in ("MCU_ID.cfg", "box.cfg", "fluidd.cfg", "saved_variables.cfg"):
+            if (snapshot_root / excluded).exists():
+                raise SystemExit(
+                    f"bundle smoke test found excluded {firmware} stock file: {excluded}"
+                )
+
+    firmware_05_root = snapshot_base / "01.01.06.05" / "config"
+    firmware_05_printer = (firmware_05_root / "printer.cfg").read_text(encoding="utf-8")
+    for expected in (
+        "tachometer_poll_interval: 0.0005",
+        "# [smart_output_pin polar_cooler]",
+        "# [smart_output_pin beeper]",
+        "[output_pin polar_cooler]",
+    ):
+        if expected not in firmware_05_printer:
+            raise SystemExit(f"bundle .05 stock printer.cfg is missing {expected}")
+    firmware_05_qd_macro = (
+        firmware_05_root / "klipper-macros-qd/qd_macro.cfg"
+    ).read_text(encoding="utf-8")
+    for expected in ("SET_KINEMATIC_POSITION Z=150", "G1 Z1 F600"):
+        if expected not in firmware_05_qd_macro:
+            raise SystemExit(f"bundle .05 stock qd_macro.cfg is missing {expected}")
     package_manifest = load_manifest(bundle_root / "installer/package.yaml")
     for patch in package_manifest.install.source_patches:
         for variant in patch.variants:

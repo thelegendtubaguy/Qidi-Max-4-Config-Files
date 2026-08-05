@@ -1,6 +1,6 @@
 # QIDI Box state and command observations
 
-Evidence qualifiers are defined in `openspec/observations/README.md`. These observations apply to QIDI Max 4 firmware `01.01.06.04`.
+Evidence qualifiers are defined in `openspec/observations/README.md`. Runtime captures apply to QIDI Max 4 firmware `01.01.06.04`; `01.01.06.05` findings are explicitly config-confirmed, harness-recovered, or static-recovered.
 
 ## Saved-variable model
 
@@ -123,6 +123,15 @@ Harnessed branch families used `MOVE_TO_TRASH`, `M109`, `M400` where required, a
 
 When `enable_box=0`, recovered setup runs and the command returns without feeder motion. Repository code must still distinguish `enable_box` from object existence.
 
+## Firmware `01.01.06.05` compiled-module differences
+
+- **Harness-recovered:** `BoxExtras.detect_filament_loaded()` adds `M400` plus escalating `G1 E10 F600` and `G1 E20 F900` retries. Worst-case probing increases from `75 mm` on `.04` to `140 mm` on `.05`; physical sensor response and failure outcomes were not exercised.
+- **Harness-recovered:** `BoxExtruderStepper.cmd_EXTRUDER_LOAD()` adds state paths named `diff_mv`, `box_autofeed`, `retry_success`, and `box_autofeed.limit_a_state`, with waste-area recovery extrusions of `30 mm` or `50 mm`. Exact retry thresholds and branch order remain unresolved.
+- **Harness-recovered:** `BoxExtruderStepper.cmd_EXTRUDER_UNLOAD()` resolves `printer.lookup_object("virtual_sdcard", None)` into `v_sd` while printing. Downstream effects of the resolved object remain unresolved.
+- **Harness-recovered:** `BoxExtruderStepper.switch_next_slot()` scans `value_t0` through `value_t15` rather than using `get_key_by_value(...)` for the next logical tool mapping. Physical auto-reload movement remains unresolved.
+- **Harness-recovered:** `TaskQueueManager._decide_flow_id()` selects flow `6` (`EXT_HEAT`, `EXT_LOAD`, `EXT_BITE`, `EXT_WIPE`) for external-spool `LOAD` with slot `16`, filament present, and empty `last_load_slot`; `.04` selected flow `0` for the same controlled input.
+- **Static-recovered:** public classes, methods, signatures, defaults, and recovered error-code sets are unchanged. `box_autofeed.so`, `box_detect.so`, and `box_rfid.so` have no confirmed source-level functional change beyond rebuilt binaries.
+
 ## Task queue
 
 | Flow | Ordered steps |
@@ -138,7 +147,7 @@ When `enable_box=0`, recovered setup runs and the command returns without feeder
 | `8` | `EXT_HEAT`, `EXT_CUT`, `EXT_UNLOAD`, `WAIT_USER`, `BOX_HEAT`, `BOX_LOAD`, `BOX_WIPE` |
 | `9` | `BOX_HEAT`, `BOX_CUT`, `BOX_UNLOAD`, `WAIT_USER`, `EXT_HEAT`, `EXT_LOAD`, `EXT_BITE`, `EXT_WIPE` |
 
-Fake-manager `_decide_flow_id()` results:
+Firmware `.04` fake-manager `_decide_flow_id()` results:
 
 - uppercase `LOAD`: flow `1` without filament; flow `2` with filament when `last_load_slot != slot16`;
 - uppercase `UNLOAD`: flow `3` with filament when `last_load_slot != slot16`; flow `7` when `last_load_slot=slot16`;
