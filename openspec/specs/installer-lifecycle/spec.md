@@ -10,7 +10,7 @@ The installer admits compatible firmware, applies guarded configuration, Klipper
 The installer SHALL apply configuration changes or legacy stock restoration only from the validated baseline selected for the detected firmware, reject unsupported firmware before state reads, and reject unmatched or invalid baseline data before backup creation or live writes.
 
 #### Scenario: Supported firmware selects one baseline
-- **WHEN** `/home/qidi/update/firmware_manifest.json SOC.version` is `01.01.06.03` or `01.01.06.04`
+- **WHEN** `/home/qidi/update/firmware_manifest.json SOC.version` is `01.01.06.03`, `01.01.06.04`, or `01.01.06.05`
 - **THEN** firmware validation passes
 - **AND** every active configuration target selects no more than one variant for that firmware
 - **AND** each declared target has at least one variant using supported firmware
@@ -32,6 +32,15 @@ The installer SHALL apply configuration changes or legacy stock restoration only
 - **AND** `_km_idle_timeout` saves `saved_extruder_temp` on `RESUME_PRINT`
 - **AND** `Chamber_Thermal_Protection_Sensor max_temp` is `170`
 - **AND** official filament `[fila25]` uses `PA6-CF` for both `filament` and `type`
+
+#### Scenario: Current 01.01.06.05 stock baseline is selected
+- **WHEN** firmware `01.01.06.05` is detected
+- **THEN** its baseline represents QIDI defaults commit `c75c0b662d1d4fd2a7dd19e49843b91e6544a1ed`
+- **AND** guarded configuration targets use the same stock and desired values as their `.04` variants
+- **AND** the hotend fan `tachometer_poll_interval` is `0.0005`
+- **AND** `[smart_output_pin polar_cooler]` and `[smart_output_pin beeper]` are inactive while their underlying output pins remain available
+- **AND** `M4031` establishes Z position, moves Z by `1 mm`, and restores absolute positioning before enabling and driving the Z steppers
+- **AND** stock `homing.py` SHA-256 is `0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761`
 
 #### Scenario: Legacy manual installation is migrated
 - **WHEN** legacy optimized markers exist without valid installer state

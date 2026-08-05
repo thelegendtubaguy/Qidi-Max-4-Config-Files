@@ -44,6 +44,7 @@ SOURCE_CASES = (
     ("01.01.06.03", "standard", DESIRED_HOMING_SHA256),
     ("01.01.06.04", "standard", DESIRED_HOMING_SHA256),
     ("01.01.06.04", "sync-reset", SYNC_RESET_DESIRED_HOMING_SHA256),
+    ("01.01.06.05", "sync-reset", SYNC_RESET_DESIRED_HOMING_SHA256),
 )
 
 
@@ -56,10 +57,12 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
 
     def _fixture(self, firmware: str, *, source_variant: str = "standard"):
         printer_root = copy_base_runtime()
-        if firmware == "01.01.06.04":
+        if firmware != "01.01.06.03":
             shutil.copytree(
                 REPO_ROOT
-                / "installer/stock/qidi-max4-defaults/firmwares/01.01.06.04/config",
+                / "installer/stock/qidi-max4-defaults/firmwares"
+                / firmware
+                / "config",
                 printer_root / "config",
                 dirs_exist_ok=True,
             )

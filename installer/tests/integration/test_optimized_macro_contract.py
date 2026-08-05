@@ -39,6 +39,46 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertIn("G31", gcode)
         self.assertLess(gcode.index("G31"), gcode.index("CLEAR_PAUSE"))
 
+    def test_firmware_05_polar_cooler_pause_resume_boundary(self):
+        optimized_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(OPTIMIZED_MACRO_ROOT.glob("*.cfg"))
+        )
+        self.assertNotIn("[smart_output_pin polar_cooler]", optimized_text)
+        self.assertNotIn("[smart_output_pin beeper]", optimized_text)
+
+        resume = self._macro_gcode("RESUME")
+        for forbidden in (
+            "M106 P4",
+            "SET_PIN PIN=polar_cooler",
+            "ENABLE_SMART_PIN PIN=polar_cooler",
+        ):
+            self.assertNotIn(forbidden, resume)
+
+        stock_root = (
+            REPO_ROOT
+            / "installer/stock/qidi-max4-defaults/firmwares/01.01.06.05/config"
+        )
+        pause_resume_path = stock_root / "klipper-macros-qd/pause_resume_cancel.cfg"
+        pause = self._section_gcode(pause_resume_path, "gcode_macro PAUSE")
+        self.assertNotIn("M106 P4", pause)
+        self.assertNotIn("SET_PIN PIN=polar_cooler", pause)
+        self.assertNotIn("ENABLE_SMART_PIN PIN=polar_cooler", pause)
+
+        self.assertIn("M106 P4 S{polar_cooler}", self._macro_gcode("OPTIMIZED_M1004"))
+        self.assertIn("M106 P4 S0", self._macro_gcode("OPTIMIZED_CANCEL_PRINT_ON_ERROR"))
+        stock_start_end = stock_root / "klipper-macros-qd/start_end.cfg"
+        self.assertIn(
+            "M106 P4 S{polar_cooler}",
+            self._section_gcode(
+                stock_start_end, "gcode_macro _print_start_phase_extruder"
+            ),
+        )
+        self.assertIn(
+            "M106 P4 S0",
+            self._section_gcode(stock_start_end, "gcode_macro PRINT_END"),
+        )
+
     def test_print_offset_capture_uses_volatile_saved_value(self):
         text = (OPTIMIZED_MACRO_ROOT / "offset.cfg").read_text(encoding="utf-8")
         gcode = self._macro_gcode("_KM_APPLY_PRINT_OFFSET")
