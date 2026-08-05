@@ -15,6 +15,7 @@ Ordered invariants:
 - `M1002 R1`
 - `G29.0`
 - `OPTIMIZED_PRINT_START_HOME`
+- `_TLTG_ENSURE_TOOL_MAPPINGS`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]`
 - `T[initial_tool]`
 - `G90`
@@ -49,6 +50,7 @@ Ordered invariants:
 - `M1002 R1`
 - `G29.0`
 - `OPTIMIZED_PRINT_START_HOME`
+- `_TLTG_ENSURE_TOOL_MAPPINGS`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]`
 - `T[initial_tool]`
 - `G90`
@@ -79,7 +81,7 @@ Forbidden patterns:
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:183-226`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:233-276`
 
 Direct visible macro calls in branch slice:
 
@@ -124,7 +126,7 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:227-293`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:277-343`
 
 Direct visible macro calls in branch slice:
 
@@ -165,7 +167,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-334`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:344-384`
 
 Direct visible macro calls in branch slice:
 

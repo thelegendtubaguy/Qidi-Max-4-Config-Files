@@ -430,6 +430,86 @@ class InstallFlowTests(unittest.TestCase):
         self.assertIn("Tool numbers do not line up with slot numbers", output)
         self.assertIn("Tool-slot mappings left unchanged.", output)
 
+    def test_noninteractive_install_preserves_value_t_slot_mismatches(self):
+        printer_root = copy_base_runtime()
+        saved_variables_path = printer_root / "config/saved_variables.cfg"
+        saved_variables_path.write_text(
+            "[Variables]\n"
+            "box_count = 1\n"
+            "enable_box = 1\n"
+            "value_t0 = 'slot0'\n"
+            "value_t1 = 'slot3'\n",
+            encoding="utf-8",
+        )
+        stream = io.StringIO()
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        run_install(
+            paths,
+            self.manifest,
+            reporter=PlainReporter(stream),
+            urlopen=moonraker_urlopen(),
+        )
+
+        saved_variables = saved_variables_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(saved_variables, "Variables", "value_t1").value,
+            "'slot3'",
+        )
+        output = stream.getvalue()
+        self.assertNotIn("Tool numbers do not line up with slot numbers", output)
+        self.assertNotIn("Tool-slot mappings corrected", output)
+
+    def test_interactive_manual_update_offers_to_align_tool_slot_mismatches(self):
+        printer_root = copy_base_runtime()
+        saved_variables_path = printer_root / "config/saved_variables.cfg"
+        saved_variables_path.write_text(
+            "[Variables]\n"
+            "box_count = 1\n"
+            "enable_box = 1\n"
+            "value_t0 = 'slot0'\n"
+            "value_t1 = 'slot1'\n"
+            "value_t2 = 'slot2'\n"
+            "value_t3 = 'slot3'\n",
+            encoding="utf-8",
+        )
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        run_install(
+            paths,
+            self.manifest,
+            reporter=PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        saved_variables_path.write_text(
+            saved_variables_path.read_text(encoding="utf-8").replace(
+                "value_t1 = 'slot1'", "value_t1 = 'slot3'", 1
+            ),
+            encoding="utf-8",
+        )
+
+        stream = io.StringIO()
+        run_install(
+            paths,
+            self.manifest,
+            reporter=PlainReporter(stream),
+            input_stream=io.StringIO("y\ny\nn\nn\nn\n"),
+            urlopen=moonraker_urlopen(),
+        )
+
+        saved_variables = saved_variables_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(saved_variables, "Variables", "value_t1").value,
+            "'slot1'",
+        )
+        output = stream.getvalue()
+        self.assertIn("Tool numbers do not line up with slot numbers", output)
+        self.assertIn("Tool-slot mappings corrected in saved_variables.cfg.", output)
+
     def test_legacy_manual_configs_reset_to_stock_before_install(self):
         printer_root = copy_base_runtime()
         (printer_root / "config/klipper-macros-qd/filament.cfg").write_text(

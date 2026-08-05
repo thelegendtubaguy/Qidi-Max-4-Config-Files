@@ -172,6 +172,10 @@ def maybe_prompt_align_tool_slots(
     input_stream,
     journal,
 ) -> bool:
+    if input_stream is None:
+        reporter.debug(event="tool_slot_alignment.skipped", reason="noninteractive")
+        return False
+
     opportunity = detect_tool_slot_alignment_opportunity(paths)
     if opportunity is None:
         reporter.debug(event="tool_slot_alignment.skipped")
@@ -182,20 +186,19 @@ def maybe_prompt_align_tool_slots(
         mismatches=len(opportunity.mismatches),
         saved_variables_path=opportunity.saved_variables_path,
     )
-    if input_stream is not None:
-        rows = tuple(
-            f"{mismatch.variable}: {mismatch.current} -> {mismatch.expected}"
-            for mismatch in opportunity.mismatches
+    rows = tuple(
+        f"{mismatch.variable}: {mismatch.current} -> {mismatch.expected}"
+        for mismatch in opportunity.mismatches
+    )
+    if hasattr(reporter, "emit_detail_groups"):
+        reporter.emit_detail_groups(
+            (DetailGroup(messages.TOOL_SLOT_MAPPING_MISMATCH_HEADER, rows),)
         )
-        if hasattr(reporter, "emit_detail_groups"):
-            reporter.emit_detail_groups(
-                (DetailGroup(messages.TOOL_SLOT_MAPPING_MISMATCH_HEADER, rows),)
-            )
-        else:
-            reporter.prepare_for_prompt()
-            reporter.line(messages.TOOL_SLOT_MAPPING_MISMATCH_HEADER)
-            for row in rows:
-                reporter.line(f"  - {row}")
+    else:
+        reporter.prepare_for_prompt()
+        reporter.line(messages.TOOL_SLOT_MAPPING_MISMATCH_HEADER)
+        for row in rows:
+            reporter.line(f"  - {row}")
     if not confirm_yes(
         reporter=reporter,
         input_stream=input_stream,

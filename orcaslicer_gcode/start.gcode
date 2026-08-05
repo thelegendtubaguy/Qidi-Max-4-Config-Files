@@ -13,6 +13,7 @@ G29.0
 OPTIMIZED_PRINT_START_HOME
 
 ;===== BOX_PREPAR =====
+_TLTG_ENSURE_TOOL_MAPPINGS
 OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]
 
 ;===== PRINT_START =====
