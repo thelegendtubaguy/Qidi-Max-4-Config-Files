@@ -75,11 +75,14 @@ After install and Klipper restart, the optimized macro set includes:
 TLTG_PROBE_ACCURACY_CENTER
 TLTG_CORNER_BED_SCREW_CHECK
 SCREWS_TILT_CALCULATE
+TLTG_RESET_TOOL_MAPPINGS
 ```
 
 `TLTG_PROBE_ACCURACY_CENTER [SAMPLES=20]` homes, moves to `X195 Y195 Z10`, and runs Klipper `PROBE_ACCURACY`.
 
 `TLTG_CORNER_BED_SCREW_CHECK` homes, runs `Z_TILT_ADJUST`, and runs `SCREWS_TILT_CALCULATE`.
+
+`TLTG_RESET_TOOL_MAPPINGS` restores QIDI Box tool-to-slot identity mappings while the printer is idle. It is rejected while printing or paused.
 
 ### Filament runout sensor
 
