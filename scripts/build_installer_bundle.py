@@ -19,6 +19,8 @@ from installer.runtime.compatibility import load_supported_upgrade_sources, vali
 from installer.runtime.manifest import load_manifest
 from installer.runtime.naming import BUNDLE_NAME_PREFIX, BUNDLE_ROOT_NAME
 ALLOWED_FILES = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "installer/package.yaml",
     "installer/supported_upgrade_sources.yaml",
     "installer/release/install.sh",
@@ -26,6 +28,7 @@ ALLOWED_FILES = [
     "installer/release/auto-update.sh",
 ]
 ALLOWED_DIRECTORIES = [
+    "LICENSES",
     "installer/runtime",
     "installer/klipper/tltg-optimized-macros",
     "installer/klipper/qidi",

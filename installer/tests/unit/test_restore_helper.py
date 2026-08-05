@@ -156,7 +156,11 @@ class RestoreHelperTests(unittest.TestCase):
         patch = self.manifest.install.source_patches[0]
         for archive_firmware, live_firmware in (
             ("01.01.06.03", "01.01.06.04"),
+            ("01.01.06.03", "01.01.06.05"),
             ("01.01.06.04", "01.01.06.03"),
+            ("01.01.06.04", "01.01.06.05"),
+            ("01.01.06.05", "01.01.06.03"),
+            ("01.01.06.05", "01.01.06.04"),
         ):
             with self.subTest(
                 archive_firmware=archive_firmware,

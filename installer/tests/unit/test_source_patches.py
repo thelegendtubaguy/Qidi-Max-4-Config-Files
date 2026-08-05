@@ -72,6 +72,24 @@ class SourcePatchTests(unittest.TestCase):
             },
         )
 
+    def test_manifest_exposes_only_sync_reset_01010605_stock_variant(self):
+        patch = self.manifest.install.source_patches[0]
+        variants = tuple(
+            variant
+            for variant in patch.variants
+            if variant.firmware == "01.01.06.05"
+        )
+        self.assertEqual(len(variants), 1)
+        self.assertEqual(
+            variants[0].expected_sha256,
+            "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761",
+        )
+        self.assertEqual(variants[0].source, "klipper/qidi/homing-sync-reset.py")
+        self.assertEqual(
+            variants[0].desired_sha256,
+            "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a",
+        )
+
     def test_payload_compiles_hashes_and_has_required_timing_without_diagnostics(self):
         payload = REPO_ROOT / "installer/klipper/qidi/homing.py"
         value = payload.read_bytes()
@@ -138,6 +156,11 @@ class SourcePatchTests(unittest.TestCase):
                 homing_sync_reset_fixture_bytes(),
                 "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761",
             ),
+            (
+                "01.01.06.05",
+                homing_fixture_bytes("01.01.06.05"),
+                "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761",
+            ),
         )
         for name, value, expected in fixtures:
             with self.subTest(source=name):
@@ -153,14 +176,14 @@ class SourcePatchTests(unittest.TestCase):
         self.assertIn("source_patches:", state)
         self.assertIn("89428b465b7f3d62bd8b65b3155b8aa8e93cd917f59779e40a246b5d89ff8d71", state)
 
-    def test_source_install_on_both_supported_firmware_fixtures(self):
-        for firmware in ("01.01.06.03", "01.01.06.04"):
+    def test_source_install_on_all_supported_firmware_fixtures(self):
+        for firmware in ("01.01.06.03", "01.01.06.04", "01.01.06.05"):
             with self.subTest(firmware=firmware):
                 root = copy_base_runtime(); paths = self._paths(root)
                 (root / "firmware_manifest.json").write_text(json.dumps({"SOC": {"version": firmware}}), encoding="utf-8")
-                if firmware == "01.01.06.04":
+                if firmware != "01.01.06.03":
                     shutil.copytree(
-                        REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares/01.01.06.04/config",
+                        REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares" / firmware / "config",
                         root / "config",
                         dirs_exist_ok=True,
                     )
@@ -168,9 +191,14 @@ class SourcePatchTests(unittest.TestCase):
                     homing_fixture_bytes(firmware)
                 )
                 run_install(paths, self.manifest, PlainReporter(io.StringIO()), urlopen=moonraker_urlopen())
+                expected = (
+                    "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a"
+                    if firmware == "01.01.06.05"
+                    else "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+                )
                 self.assertEqual(
                     hashlib.sha256((paths.managed_klipper_root / "klippy/extras/homing.py").read_bytes()).hexdigest(),
-                    "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3",
+                    expected,
                 )
 
     def test_install_preserves_sync_reset_variant_behavior_and_provenance(self):
@@ -246,6 +274,33 @@ class SourcePatchTests(unittest.TestCase):
         self.assertIn("accepted SHA-256", message)
         self.assertFalse(list(root.glob("tltg-optimized-macros-before-optimize-*.zip")))
 
+    def test_firmware_05_rejects_firmware_04_standard_homing_before_backup(self):
+        root = copy_base_runtime(); paths = self._paths(root)
+        (root / "firmware_manifest.json").write_text(
+            json.dumps({"SOC": {"version": "01.01.06.05"}}), encoding="utf-8"
+        )
+        shutil.copytree(
+            REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares/01.01.06.05/config",
+            root / "config",
+            dirs_exist_ok=True,
+        )
+        standard_04 = homing_fixture_bytes("01.01.06.04")
+        target = paths.managed_klipper_root / "klippy/extras/homing.py"
+        target.write_bytes(standard_04)
+
+        with self.assertRaises(SourcePatchError) as raised:
+            run_install(
+                paths,
+                self.manifest,
+                PlainReporter(io.StringIO()),
+                urlopen=moonraker_urlopen(),
+            )
+
+        message = str(raised.exception)
+        self.assertIn("firmware 01.01.06.05", message)
+        self.assertIn(hashlib.sha256(standard_04).hexdigest(), message)
+        self.assertFalse(list(root.glob("tltg-optimized-macros-before-optimize-*.zip")))
+
     def test_already_desired_source_is_a_noop_without_ledger(self):
         root = copy_base_runtime(); paths = self._paths(root)
         desired = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
@@ -317,12 +372,12 @@ class SourcePatchTests(unittest.TestCase):
         restored = cfg.read_text(encoding="utf-8")
         self.assertEqual(restored.count("\nhoming_speed: 50\n"), 2)
 
-    def test_65_migration_classification_requires_matching_owned_x_or_y_target_on_both_firmwares(self):
+    def test_65_migration_classification_requires_matching_owned_x_or_y_target_on_all_firmwares(self):
         prior = _minimal_state(patch_ledger=[
             PatchLedgerEntry("stepper_x_homing_speed", "config/printer.cfg", "stepper_x", "homing_speed", "50", "65", "applied"),
             PatchLedgerEntry("stepper_y_homing_speed", "config/printer.cfg", "stepper_y", "homing_speed", "50", "65", "noop_desired"),
         ])
-        for firmware in ("01.01.06.03", "01.01.06.04"):
+        for firmware in ("01.01.06.03", "01.01.06.04", "01.01.06.05"):
             for patch in self.manifest.patches.set_options:
                 if patch.id not in {"stepper_x_homing_speed", "stepper_y_homing_speed"}:
                     continue

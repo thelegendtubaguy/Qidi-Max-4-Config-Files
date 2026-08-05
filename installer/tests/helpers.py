@@ -15,8 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MOONRAKER_QUERY_URL = "http://moonraker.invalid/printer/objects/query?print_stats"
 _TEMP_ROOTS: list[Path] = []
 def homing_fixture_bytes(firmware: str) -> bytes:
-    if firmware not in {"01.01.06.03", "01.01.06.04"}:
+    if firmware not in {"01.01.06.03", "01.01.06.04", "01.01.06.05"}:
         raise ValueError(f"Unsupported homing fixture firmware: {firmware}")
+    if firmware == "01.01.06.05":
+        return homing_sync_reset_fixture_bytes()
     value = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
     value = value.replace(b"G4 P100", b"G4 P200").replace(b"G4 P50", b"G4 P200")
     value = value.replace(

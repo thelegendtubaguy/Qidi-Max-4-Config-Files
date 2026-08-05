@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.08.05.1
+- Reset QIDI Box tool-to-slot mappings to identity after successful prints while preserving touchscreen and runout mappings during active or interrupted prints, with missing-mapping repair and an idle-only Fluidd/console reset macro.
+- Added GPLv3 project licensing and bundled `LICENSE`, `THIRD_PARTY_NOTICES.md`, and component license texts under `LICENSES/`.
+
 ## 26.07.28.1
 - Added guarded support for both known QIDI firmware `01.01.06.04` `homing.py` variants while preserving each variant's endstop synchronization behavior.
 - Included live and accepted source hashes in unsupported managed-source drift errors.

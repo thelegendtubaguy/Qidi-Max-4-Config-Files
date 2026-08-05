@@ -75,6 +75,25 @@
   ],
   "branches": [
     {
+      "name": "tool_mapping_reconciliation",
+      "source_macro": "OPTIMIZED_START_PRINT_FILAMENT_PREP",
+      "condition": "all optimized starts",
+      "slice": {
+        "start": "{% set tool = params.EXTRUDER|int %}",
+        "end": "{% if reuse_loaded %}"
+      },
+      "must_include_order": [
+        "_TLTG_ENSURE_TOOL_MAPPINGS",
+        "SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_NOZZLE_COOLDOWN_START VARIABLE=reset_tool_mappings VALUE=0",
+        "G31",
+        "SAVE_VARIABLE VARIABLE=retained_tool_ready VALUE=0"
+      ],
+      "must_not_include": [
+        "BOX_PRINT_START",
+        "_TLTG_RESET_TOOL_MAPPINGS"
+      ]
+    },
+    {
       "name": "retained_filament_reuse",
       "source_macro": "OPTIMIZED_START_PRINT_FILAMENT_PREP",
       "condition": "reuse_loaded",

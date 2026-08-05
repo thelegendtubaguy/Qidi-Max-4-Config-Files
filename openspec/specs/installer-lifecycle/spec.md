@@ -10,7 +10,7 @@ The installer admits compatible firmware, applies guarded configuration, Klipper
 The installer SHALL apply configuration changes or legacy stock restoration only from the validated baseline selected for the detected firmware, reject unsupported firmware before state reads, and reject unmatched or invalid baseline data before backup creation or live writes.
 
 #### Scenario: Supported firmware selects one baseline
-- **WHEN** `/home/qidi/update/firmware_manifest.json SOC.version` is `01.01.06.03` or `01.01.06.04`
+- **WHEN** `/home/qidi/update/firmware_manifest.json SOC.version` is `01.01.06.03`, `01.01.06.04`, or `01.01.06.05`
 - **THEN** firmware validation passes
 - **AND** every active configuration target selects no more than one variant for that firmware
 - **AND** each declared target has at least one variant using supported firmware
@@ -32,6 +32,15 @@ The installer SHALL apply configuration changes or legacy stock restoration only
 - **AND** `_km_idle_timeout` saves `saved_extruder_temp` on `RESUME_PRINT`
 - **AND** `Chamber_Thermal_Protection_Sensor max_temp` is `170`
 - **AND** official filament `[fila25]` uses `PA6-CF` for both `filament` and `type`
+
+#### Scenario: Current 01.01.06.05 stock baseline is selected
+- **WHEN** firmware `01.01.06.05` is detected
+- **THEN** its baseline represents QIDI defaults commit `c75c0b662d1d4fd2a7dd19e49843b91e6544a1ed`
+- **AND** guarded configuration targets use the same stock and desired values as their `.04` variants
+- **AND** the hotend fan `tachometer_poll_interval` is `0.0005`
+- **AND** `[smart_output_pin polar_cooler]` and `[smart_output_pin beeper]` are inactive while their underlying output pins remain available
+- **AND** `M4031` establishes Z position, moves Z by `1 mm`, and restores absolute positioning before enabling and driving the Z steppers
+- **AND** stock `homing.py` SHA-256 is `0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761`
 
 #### Scenario: Legacy manual installation is migrated
 - **WHEN** legacy optimized markers exist without valid installer state
@@ -161,7 +170,7 @@ The installer SHALL manage vendor Python only through validated firmware-scoped 
 - **AND** the marker is removed atomically only after verified activation
 
 ### Requirement: QIDI Box saved-variable reconciliation
-The installer SHALL keep QIDI Box enablement and logical tool mappings usable without claiming ownership of vendor-managed saved variables.
+The installer SHALL keep QIDI Box enablement and logical tool mappings usable without claiming ownership of vendor-managed saved variables or silently normalizing non-empty mappings during noninteractive operation.
 
 #### Scenario: Box support is optional
 - **WHEN** `config/box.cfg` or `[box_extras]` is absent
@@ -176,9 +185,19 @@ The installer SHALL keep QIDI Box enablement and logical tool mappings usable wi
 
 #### Scenario: Required tool mappings are present
 - **WHEN** `box_count` requires logical tools `0` through `min(box_count * 4, 16) - 1`
-- **THEN** missing or empty `value_tN` entries are written as `'slotN'`
-- **AND** interactive install asks before correcting non-empty mismatches
-- **AND** `--yes` corrects mismatches without prompting
+- **THEN** missing or empty `value_tN` entries are written as `'slotN'` without a separate prompt
+- **AND** existing non-empty mappings remain available for alignment evaluation
+
+#### Scenario: Interactive operation offers mapping alignment
+- **WHEN** an interactive installation or manual update finds a non-empty `value_tN` that differs from `'slotN'`
+- **THEN** the mismatches are presented to the operator
+- **AND** accepted alignment rewrites those mappings to identity values
+- **AND** declined alignment preserves them
+
+#### Scenario: Noninteractive operation preserves mapping mismatches
+- **WHEN** installation or update runs without an interactive input stream, including automatic update
+- **THEN** missing or empty active mappings are created
+- **AND** every existing non-empty mapping is preserved without an alignment prompt or implicit approval
 
 #### Scenario: Vendor saved variables remain outside installer ownership
 - **WHEN** enablement or mapping reconciliation changes `config/saved_variables.cfg`
@@ -188,6 +207,7 @@ The installer SHALL keep QIDI Box enablement and logical tool mappings usable wi
 #### Scenario: Box-count changes reconcile only while idle
 - **WHEN** auto-update observes a changed `box_count` while Klipper is reachable and idle
 - **THEN** missing or empty mappings are added
+- **AND** existing non-empty mappings are preserved
 - **AND** `config/tltg_optimized_runtime_state.json last_observed_box_count` is updated
 - **AND** busy or unknown printer state causes reconciliation to skip without writes
 
