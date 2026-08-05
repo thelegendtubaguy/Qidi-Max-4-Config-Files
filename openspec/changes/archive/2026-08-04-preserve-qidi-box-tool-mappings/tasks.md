@@ -14,7 +14,7 @@
 
 ## 3. Release Metadata
 
-- [x] 3.1 Bump installer and runtime package metadata to `26.08.04.1` through `scripts/bump_installer_version.py`.
+- [x] 3.1 Bump installer and runtime package metadata to `26.08.05.1` through `scripts/bump_installer_version.py`.
 - [x] 3.2 Add `CHANGELOG.md` release notes for tool-mapping normalization and bundled GPLv3/third-party licensing material.
 
 ## 4. Validation

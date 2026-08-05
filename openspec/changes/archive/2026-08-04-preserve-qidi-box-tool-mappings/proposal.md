@@ -11,7 +11,7 @@ QIDI Box touchscreen selection and filament-runout handling can silently rewrite
 - After successful end-of-print filament retention or unloading, begin nozzle cooldown before resetting non-identity tool mappings to identity mappings.
 - Preserve mappings on cancellation, print error, or interrupted end sequences where filament state may be unresolved.
 - Provide an idle-only console macro for manually resetting tool mappings from Fluidd or the Klipper console.
-- Release the behavior as package version `26.08.04.1` with changelog entries for tool-mapping normalization and the GPLv3/third-party licensing files already included in the release bundle.
+- Release the behavior as package version `26.08.05.1` with changelog entries for tool-mapping normalization and the GPLv3/third-party licensing files already included in the release bundle.
 
 ## Capabilities
 

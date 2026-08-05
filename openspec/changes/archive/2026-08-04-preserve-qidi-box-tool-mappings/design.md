@@ -49,9 +49,9 @@ The mapping values stay outside `tltg_optimized_state.yaml`; uninstall does not 
 
 OrcaSlicer and QIDI Studio start G-code invoke missing-only reconciliation immediately before optimized filament preparation. Both end packs invoke reset after their cooldown-start command while retaining slicer-specific placeholder restrictions. The start-print path contract records the new reconciliation ordering and generated views are regenerated.
 
-### Release as 26.08.04.1
+### Release as 26.08.05.1
 
-`scripts/bump_installer_version.py 26.08.04.1` updates package metadata, compatibility inheritance, and the runtime version banner. `CHANGELOG.md` lists the mapping lifecycle and the GPLv3/third-party licensing material included by the release bundle.
+`scripts/bump_installer_version.py 26.08.05.1` updates package metadata, compatibility inheritance, and the runtime version banner. `CHANGELOG.md` lists the mapping lifecycle and the GPLv3/third-party licensing material included by the release bundle.
 
 ## Risks / Trade-offs
 

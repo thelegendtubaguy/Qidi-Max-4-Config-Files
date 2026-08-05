@@ -1,6 +1,6 @@
 # Changelog
 
-## 26.08.04.1
+## 26.08.05.1
 - Reset QIDI Box tool-to-slot mappings to identity after successful prints while preserving touchscreen and runout mappings during active or interrupted prints, with missing-mapping repair and an idle-only Fluidd/console reset macro.
 - Added GPLv3 project licensing and bundled `LICENSE`, `THIRD_PARTY_NOTICES.md`, and component license texts under `LICENSES/`.
 
