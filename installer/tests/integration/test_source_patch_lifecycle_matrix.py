@@ -11,7 +11,16 @@ from pathlib import Path
 from unittest import mock
 
 from installer.runtime import klipper_cfg
-from installer.runtime.auto_update import AutoUpdateError, LOCK_HELD_ENV, run_auto_update_check, state_path
+from installer.runtime.auto_update import (
+    AutoUpdateError,
+    LOCK_HELD_ENV,
+    _installation_requires_reconciliation,
+    disable_auto_updates,
+    enable_auto_updates,
+    enrollment_path,
+    run_auto_update_check,
+    state_path,
+)
 from installer.runtime.backup import load_backup_snapshot, snapshot_runtime_tree
 from installer.runtime.cli import resolve_runtime_paths
 from installer.runtime.compatibility import load_supported_upgrade_sources
@@ -249,6 +258,7 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 state_path(paths).write_text(
                     json.dumps({"latest_checksum": "0" * 64}), encoding="utf-8"
                 )
+                enrollment_path(paths).write_text("1\n", encoding="utf-8")
                 pids = iter((100, 101))
                 child_calls = []
 
@@ -321,6 +331,227 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 )
                 self.assertFalse(paths.restart_marker_path.exists())
 
+    def test_auto_update_enrollment_survives_config_cleanup_and_is_cleared_before_sudo(self):
+        printer_root, paths, _ = self._fixture("01.01.06.03")
+        checksum = "a" * 64
+
+        with mock.patch("installer.runtime.auto_update.shutil.which", return_value="/usr/bin/tool"):
+            enable_auto_updates(
+                paths=paths,
+                reporter=PlainReporter(io.StringIO()),
+                urlopen=lambda url, timeout=0: _BytesResponse(
+                    f"{checksum} bundle\n".encode()
+                ),
+                run=lambda command, **kwargs: subprocess.CompletedProcess(command, 0),
+            )
+
+        self.assertEqual(enrollment_path(paths).read_text(encoding="utf-8"), "1\n")
+        self.assertEqual(enrollment_path(paths).stat().st_mode & 0o777, 0o600)
+        shutil.rmtree(printer_root / "config")
+        (printer_root / "config").mkdir()
+        self.assertTrue(enrollment_path(paths).exists())
+
+        def failed_sudo(command, **kwargs):
+            return subprocess.CompletedProcess(command, 1)
+
+        with mock.patch("installer.runtime.auto_update.shutil.which", return_value="/usr/bin/tool"):
+            with self.assertRaises(AutoUpdateError):
+                disable_auto_updates(
+                    paths=paths,
+                    reporter=PlainReporter(io.StringIO()),
+                    run=failed_sudo,
+                )
+        self.assertFalse(enrollment_path(paths).exists())
+
+    def test_unenrolled_changed_checksum_records_latest_without_installing(self):
+        printer_root, paths, _ = self._fixture("01.01.06.03")
+        old_checksum = "1" * 64
+        checksum = "2" * 64
+        state_path(paths).write_text(
+            json.dumps({"latest_checksum": old_checksum}), encoding="utf-8"
+        )
+        opened_urls = []
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            opened_urls.append(url)
+            if url.endswith(".sha256"):
+                return _BytesResponse(f"{checksum} bundle\n".encode())
+            if "printer/objects/query" in url:
+                return _JsonResponse(
+                    {"result": {"status": {"print_stats": {"state": "standby"}}}}
+                )
+            self.fail(f"Unexpected URL: {url}")
+
+        result = run_auto_update_check(
+            paths=paths,
+            reporter=PlainReporter(io.StringIO()),
+            environ={
+                "TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256",
+                "TLTG_AUTO_UPDATE_ARCHIVE_URL": "https://example.invalid/latest.tar.gz",
+            },
+            urlopen=urlopen,
+        )
+
+        self.assertEqual(result.action, "initialized")
+        self.assertEqual(
+            json.loads(state_path(paths).read_text(encoding="utf-8"))["latest_checksum"],
+            checksum,
+        )
+        self.assertFalse(any(url.endswith(".tar.gz") for url in opened_urls))
+
+    def test_enrolled_installation_health_detects_firmware_owned_drift(self):
+        firmware = "01.01.06.05"
+        printer_root, paths, _ = self._fixture(
+            firmware, source_variant="sync-reset"
+        )
+        self._run_install(paths)
+
+        self.assertFalse(_installation_requires_reconciliation(paths))
+        (printer_root / "config/printer.cfg").write_bytes(
+            (
+                REPO_ROOT
+                / "installer/stock/qidi-max4-defaults/firmwares"
+                / firmware
+                / "config/printer.cfg"
+            ).read_bytes()
+        )
+        self.assertTrue(_installation_requires_reconciliation(paths))
+
+    def test_enrolled_auto_update_recovers_after_firmware_config_cleanup(self):
+        firmware = "01.01.06.05"
+        printer_root, installed_paths, _ = self._fixture(
+            firmware, source_variant="sync-reset"
+        )
+        self._run_install(installed_paths)
+        enrollment_path(installed_paths).write_text("1\n", encoding="utf-8")
+
+        saved_variables = (printer_root / "config/saved_variables.cfg").read_bytes()
+        box_config = (printer_root / "config/box.cfg").read_bytes()
+        shutil.rmtree(printer_root / "config")
+        shutil.copytree(
+            REPO_ROOT
+            / "installer/stock/qidi-max4-defaults/firmwares"
+            / firmware
+            / "config",
+            printer_root / "config",
+        )
+        (printer_root / "config/saved_variables.cfg").write_bytes(saved_variables)
+        (printer_root / "config/box.cfg").write_bytes(box_config)
+        (installed_paths.managed_klipper_root / "klippy/extras/homing.py").write_bytes(
+            homing_sync_reset_fixture_bytes()
+        )
+
+        bundle_root = temp_path("auto-update-recovery-") / "tltg-optimized-macros"
+        bundle_root.mkdir()
+        (bundle_root / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+        paths = resolve_runtime_paths(
+            bundle_root=bundle_root,
+            environ=build_env(
+                printer_root,
+                moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats",
+            ),
+        )
+        self.assertTrue(enrollment_path(paths).exists())
+        self.assertFalse(state_path(paths).exists())
+
+        archive = _release_archive()
+        checksum = hashlib.sha256(archive).hexdigest()
+        pids = iter((100, 101))
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if url.endswith(".sha256"):
+                return _BytesResponse(f"{checksum} bundle\n".encode())
+            if url.endswith(".tar.gz"):
+                return _BytesResponse(archive)
+            if url.endswith("/printer/info"):
+                return _JsonResponse(
+                    {"result": {"state": "ready", "process_id": next(pids)}}
+                )
+            if url.endswith("/machine/services/restart"):
+                return _JsonResponse({"result": "ok"})
+            if "printer/objects/query" in url:
+                return _JsonResponse(
+                    {"result": {"status": {"print_stats": {"state": "standby"}}}}
+                )
+            self.fail(f"Unexpected URL: {url}")
+
+        def child_run(command, **kwargs):
+            child_paths = resolve_runtime_paths(
+                bundle_root=REPO_ROOT,
+                environ=build_env(
+                    printer_root,
+                    moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats",
+                ),
+            )
+            run_install(
+                child_paths,
+                self.manifest,
+                PlainReporter(io.StringIO()),
+                urlopen=urlopen,
+                environ=kwargs["env"],
+            )
+            return subprocess.CompletedProcess(command, 0)
+
+        result = run_auto_update_check(
+            paths=paths,
+            reporter=PlainReporter(io.StringIO()),
+            environ={
+                **build_env(
+                    printer_root,
+                    moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats",
+                ),
+                "TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256",
+                "TLTG_AUTO_UPDATE_ARCHIVE_URL": "https://example.invalid/latest.tar.gz",
+            },
+            urlopen=urlopen,
+            run=child_run,
+        )
+
+        self.assertEqual(result.action, "reconciled")
+        self.assertEqual(
+            json.loads(state_path(paths).read_text(encoding="utf-8"))["latest_checksum"],
+            checksum,
+        )
+        self.assertTrue((printer_root / "config/tltg_optimized_state.yaml").exists())
+        self.assertIn(
+            "[include tltg-optimized-macros/*.cfg]",
+            (printer_root / "config/printer.cfg").read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            hashlib.sha256(
+                (paths.managed_klipper_root / "klippy/extras/homing.py").read_bytes()
+            ).hexdigest(),
+            SYNC_RESET_DESIRED_HOMING_SHA256,
+        )
+
+    def test_uninstall_without_config_markers_still_disables_enrollment(self):
+        printer_root, paths, _ = self._fixture("01.01.06.03")
+        enrollment_path(paths).write_text("1\n", encoding="utf-8")
+        calls = []
+
+        def disable(*, paths, reporter, input_stream, require_sudo):
+            calls.append(require_sudo)
+            enrollment_path(paths).unlink()
+
+        with mock.patch(
+            "installer.runtime.uninstall.auto_updates_configured", return_value=False
+        ), mock.patch(
+            "installer.runtime.uninstall.disable_auto_updates", side_effect=disable
+        ):
+            result = run_uninstall(
+                paths,
+                self.manifest,
+                self.compatibility,
+                PlainReporter(io.StringIO()),
+                urlopen=moonraker_urlopen(),
+            )
+
+        self.assertIsNone(result.backup_label)
+        self.assertEqual(calls, [False])
+        self.assertFalse(enrollment_path(paths).exists())
+
     def test_auto_update_checksum_mismatch_preserves_bundle_and_release_state(self):
         printer_root, _, _ = self._fixture("01.01.06.03")
         bundle_root = temp_path("auto-update-mismatch-") / "tltg-optimized-macros"
@@ -338,6 +569,7 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
         state_path(paths).write_text(
             json.dumps({"latest_checksum": old_checksum}), encoding="utf-8"
         )
+        enrollment_path(paths).write_text("1\n", encoding="utf-8")
         child_calls = []
 
         def urlopen(request, timeout=0):
