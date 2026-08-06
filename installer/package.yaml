@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.08.05.1"
+  version: "26.08.06.1"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -33,6 +33,7 @@ package:
     - "26.07.26.2"
     - "26.07.28.1"
     - "26.08.05.1"
+    - "26.08.06.1"
 
 firmware:
   supported:

@@ -209,6 +209,17 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertIn("_OPTIMIZED_HOME_Z_FROM_SAFE_POINT", z_home_gcode)
         self.assertNotIn("G28.6245197 Z", z_home_gcode)
 
+    def test_z_home_uses_fast_randomized_center_target(self):
+        globals_text = (OPTIMIZED_MACRO_ROOT / "globals.cfg").read_text(encoding="utf-8")
+        self.assertIn("variable_z_home_randomize_radius: 10", globals_text)
+        self.assertIn("variable_move_to_z_travel_speed_xy: 45000", globals_text)
+
+        move_gcode = self._macro_gcode("_OPTIMIZED_MOVE_TO_Z_HOME_POINT")
+        self.assertEqual(move_gcode.count("range(-radius, radius + 1)|random"), 2)
+        self.assertIn("center_x + (range(-radius, radius + 1)|random)", move_gcode)
+        self.assertIn("center_y + (range(-radius, radius + 1)|random)", move_gcode)
+        self.assertIn("G1 X{target_x} Y{target_y} F{opt.move_to_z_travel_speed_xy}", move_gcode)
+
     def test_safe_z_home_raw_path_is_not_reentrant(self):
         public_gcode = self._macro_gcode("_OPTIMIZED_HOME_Z_FROM_SAFE_POINT")
         self.assertIn("G28 Z", public_gcode)
@@ -412,6 +423,46 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertNotIn("target, 65", chamber_gcode)
 
 
+    def test_rear_bed_scrape_orients_cable_chain_and_uses_shared_chute_speed(self):
+        globals_text = (OPTIMIZED_MACRO_ROOT / "globals.cfg").read_text(encoding="utf-8")
+        self.assertIn("variable_trash_final_approach_speed_xy: 3500", globals_text)
+        self.assertIn("variable_rear_scrape_orient_speed_xy: 24000", globals_text)
+
+        move_to_trash = self._macro_gcode("OPTIMIZED_MOVE_TO_TRASH")
+        self.assertEqual(move_to_trash.count("F{opt.trash_final_approach_speed_xy}"), 4)
+        self.assertNotIn("F3500", move_to_trash)
+
+        scrape = self._macro_gcode("_OPTIMIZED_REAR_BED_SCRAPE")
+        self.assertIn("saved_accel = printer.toolhead.max_accel|float", scrape)
+        self.assert_ordered(
+            scrape,
+            "OPTIMIZED_MOVE_TO_TRASH",
+            "M204 S10000",
+            "G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}",
+            "G1 X380 F{opt.rear_scrape_orient_speed_xy}",
+            "G1 X188 F{opt.rear_scrape_orient_speed_xy}",
+            "G1 Y392 F{opt.trash_final_approach_speed_xy}",
+            "G1 Z-0.2 F480",
+            "G1 X15 F200",
+            "G1 Y3",
+            "G1 X-15",
+            "G1 Y-3",
+            "G1 X15",
+            "G1 Z10",
+            "G1 Y383 F12000",
+            "SET_VELOCITY_LIMIT ACCEL={saved_accel}",
+        )
+        self.assertNotIn("G1 Y395 F6000", scrape)
+        self.assertNotIn("G1 Y2", scrape)
+        self.assertNotIn("G1 Y-2", scrape)
+
+        wipe = self._macro_gcode("OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE")
+        start = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
+        self.assertEqual(wipe.count("_OPTIMIZED_REAR_BED_SCRAPE"), 1)
+        self.assertEqual(start.count("_OPTIMIZED_REAR_BED_SCRAPE"), 1)
+        self.assertNotIn("G1 Z-0.2 F480", wipe)
+        self.assertEqual(start.count("G1 Z-0.2 F480"), 0)
+
     def test_no_box_start_path_wipes_and_scrapes_without_rear_purge(self):
         start_gcode = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
         no_box_gcode = start_gcode[start_gcode.index("M118 Starting without QIDI Box filament prep") :]
@@ -431,7 +482,8 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertNotIn("_OPTIMIZED_HOME_Z_FROM_SAFE_POINT", wipe_gcode)
         self.assertNotIn("_OPTIMIZED_HOME_Z_FROM_SAFE_POINT_RAW", wipe_gcode)
         self.assertIn("OPTIMIZED_WAIT_HOTEND S={scrape_target} STATUS=clear_nozzle", wipe_gcode)
-        self.assertIn("G1 Z-0.2 F480", wipe_gcode)
+        self.assertIn("_OPTIMIZED_REAR_BED_SCRAPE", wipe_gcode)
+        self.assertNotIn("G1 Z-0.2 F480", wipe_gcode)
 
     def assert_ordered(self, text: str, *needles: str):
         position = -1
