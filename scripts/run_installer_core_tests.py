@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -11,6 +12,14 @@ if str(REPO_ROOT) not in sys.path:
 
 
 def main() -> int:
+    path_check = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts/check_gcode_paths.py")],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    if path_check.returncode != 0:
+        return path_check.returncode
+
     suite = unittest.defaultTestLoader.discover(
         str(REPO_ROOT / "installer/tests"),
         top_level_dir=str(REPO_ROOT),

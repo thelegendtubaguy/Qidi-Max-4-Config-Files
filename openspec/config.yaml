@@ -11,10 +11,9 @@ schema: spec-driven
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  specs:
+    - Keep only repository-controlled observable behavior; put implementation mechanics in design, code, or tests.
+    - State shared behavior once instead of repeating it for each firmware, slicer, entrypoint, or operation.
+    - Reference installer/package.yaml and openspec/contracts for exhaustive values, hashes, variants, command order, and forbidden patterns.
+    - Use the fewest scenarios that distinguish materially different success, safety, ownership, or failure outcomes.

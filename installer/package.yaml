@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.08.06.1"
+  version: "26.08.06.2"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -34,6 +34,7 @@ package:
     - "26.07.28.1"
     - "26.08.05.1"
     - "26.08.06.1"
+    - "26.08.06.2"
 
 firmware:
   supported:
@@ -263,6 +264,18 @@ patches:
         - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "CANCEL_PRINT"
           desired: "OPTIMIZED_CANCEL_PRINT_ON_ERROR"
+
+    - id: hotend_fan_tachometer_poll_interval
+      file: "config/printer.cfg"
+      section: "heater_fan hotend_fan"
+      option: "tachometer_poll_interval"
+      variants:
+        - firmwares: ["01.01.06.03", "01.01.06.04"]
+          expected: "0.0015"
+          desired: "0.00075"
+        - firmwares: ["01.01.06.05"]
+          expected: "0.0005"
+          desired: "0.00075"
 
     - id: timelapse_take_frame_verbose
       file: "config/timelapse.cfg"
