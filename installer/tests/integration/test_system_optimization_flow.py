@@ -49,14 +49,27 @@ class SystemOptimizationFlowTests(unittest.TestCase):
         self.assertFalse((printer_root / manifest.state_file).exists())
         self.assertIn("System optimizations dry-run:", stream.getvalue())
 
+        install_responses = io.StringIO("yes\nyes\nno\nunused\n")
+        base_urlopen = moonraker_urlopen()
+        install_idle_checks = 0
+
+        def install_urlopen(request, timeout=0):
+            nonlocal install_idle_checks
+            url = getattr(request, "full_url", str(request))
+            if url == paths.moonraker_url:
+                install_idle_checks += 1
+            return base_urlopen(request, timeout=timeout)
+
         run_install(
             paths,
             manifest,
             PlainReporter(io.StringIO()),
-            input_stream=io.StringIO("yes\nyes\nyes\nno\nno\n"),
-            urlopen=moonraker_urlopen(),
+            input_stream=install_responses,
+            urlopen=install_urlopen,
             environ=env,
         )
+        self.assertEqual(install_idle_checks, 2)
+        self.assertEqual(install_responses.readline(), "unused\n")
         self.assertTrue((system_root / "etc/resolv.conf").is_symlink())
         self.assertIn(
             "deb http://deb.debian.org/debian bullseye",

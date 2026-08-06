@@ -23,6 +23,8 @@ class ProcessRestartTransientError(ProcessRestartError):
 
 
 _VALID_OPERATIONS = frozenset({"install", "uninstall", "restore", "rollback"})
+RESTART_READY_TIMEOUT_SECONDS = 60
+DEFAULT_RESTART_ATTEMPTS = RESTART_READY_TIMEOUT_SECONDS + 1
 
 
 def printer_info_url(moonraker_url: str) -> str:
@@ -135,7 +137,7 @@ def restart_pending(
     allowed_entries: Mapping[str, str],
     urlopen=urllib.request.urlopen,
     sleep=time.sleep,
-    attempts: int = 20,
+    attempts: int = DEFAULT_RESTART_ATTEMPTS,
 ) -> bool:
     if attempts <= 0:
         raise ValueError("attempts must be positive")
@@ -163,16 +165,17 @@ def restart_pending(
             response.read()
     except (OSError, urllib.error.URLError, ValueError) as exc:
         raise ProcessRestartError("Could not request Klipper service restart.") from exc
-    for _ in range(attempts):
+    for attempt in range(attempts):
         try:
             pid, state = read_printer_info(paths.moonraker_url, urlopen=urlopen)
         except ProcessRestartTransientError:
+            pass
+        else:
+            if state == "ready" and pid != pre_restart_pid:
+                atomic_delete(paths.restart_marker_path)
+                return True
+        if attempt + 1 < attempts:
             sleep(1)
-            continue
-        if state == "ready" and pid != pre_restart_pid:
-            atomic_delete(paths.restart_marker_path)
-            return True
-        sleep(1)
     raise ProcessRestartError("Klipper did not return ready under a new process identity. Restart Klipper service manually, then retry the installer.")
 
 

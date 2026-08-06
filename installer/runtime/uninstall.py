@@ -22,7 +22,11 @@ from .compatibility import CompatibilityValidationError, allowed_target_tuples_f
 from .ensure_lines import has_active_line, remove_active_line
 from .errors import InstalledPackageValidationError, OperationCancelled
 from .firmware import detect_firmware_version_best_effort
-from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
+from .interaction import (
+    confirm_yes,
+    maybe_restart_klipper,
+    maybe_restart_pending_service_if_idle,
+)
 from .fs_atomic import atomic_write_text
 from .mirror import detect_uninstall_managed_tree_drift, remove_tree
 from .path_safety import ensure_uninstall_paths_safe
@@ -460,9 +464,11 @@ def _execute_uninstall(
         input_stream=input_stream,
     )
     if paths.restart_marker_path.exists():
-        maybe_restart_pending_service(
+        maybe_restart_pending_service_if_idle(
             paths=paths,
-            allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+            allowed_entries={
+                patch.id: patch.destination for patch in manifest.install.source_patches
+            },
             reporter=reporter,
             input_stream=input_stream,
             urlopen=urlopen,
