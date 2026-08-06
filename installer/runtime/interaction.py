@@ -5,7 +5,8 @@ import urllib.parse
 import urllib.request
 from typing import Callable, TextIO
 
-from . import messages
+from . import messages, safety
+from .errors import ActivePrintError, PrinterStateError
 
 UrlOpenFn = Callable[..., object]
 
@@ -66,10 +67,11 @@ def maybe_restart_pending_service(
     reporter,
     input_stream: TextIO | None,
     urlopen: UrlOpenFn = urllib.request.urlopen,
+    prompt: bool = True,
 ) -> bool:
     from .process_restart import ProcessRestartError, restart_pending
 
-    if input_stream is not None and not confirm_yes(
+    if prompt and input_stream is not None and not confirm_yes(
         reporter=reporter,
         input_stream=input_stream,
         question=messages.KLIPPER_SERVICE_RESTART_PROMPT,
@@ -92,6 +94,34 @@ def maybe_restart_pending_service(
         reporter.debug(event="klipper.process_restart.verified")
     reporter.line(messages.KLIPPER_SERVICE_RESTARTED)
     return True
+
+
+def maybe_restart_pending_service_if_idle(
+    *,
+    paths,
+    allowed_entries,
+    reporter,
+    input_stream: TextIO | None,
+    urlopen: UrlOpenFn = urllib.request.urlopen,
+) -> bool:
+    try:
+        safety.ensure_printer_idle(paths.moonraker_url, urlopen=urlopen)
+    except ActivePrintError:
+        reporter.debug(event="klipper.process_restart.deferred", reason="active_print")
+        reporter.line(messages.KLIPPER_SERVICE_RESTART_DEFERRED_ACTIVE_PRINT)
+        return False
+    except PrinterStateError:
+        reporter.debug(event="klipper.process_restart.deferred", reason="unknown_state")
+        reporter.line(messages.KLIPPER_SERVICE_RESTART_DEFERRED_UNKNOWN_STATE)
+        return False
+    return maybe_restart_pending_service(
+        paths=paths,
+        allowed_entries=allowed_entries,
+        reporter=reporter,
+        input_stream=input_stream,
+        urlopen=urlopen,
+        prompt=False,
+    )
 
 
 def maybe_restart_klipper(

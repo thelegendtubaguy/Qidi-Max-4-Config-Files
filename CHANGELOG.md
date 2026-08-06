@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.08.06.2
+- Reinstall enrolled optimized configuration automatically after QIDI firmware cleanup removes config-local installer state, while keeping unenrolled and disabled update checks non-mutating.
+- Tuned hotend-fan tachometer polling to 0.75 ms across supported firmware, retaining margin for the measured 13,553 RPM maximum while reducing THR polling from firmware 01.01.06.05.
+
 ## 26.08.06.1
 - Prevented the articulated cable-chain mount from striking the rear enclosure by orienting it with a full-width X traverse before rear-bed scraping and moving the scrape range to Y392–Y395.
 - Increased travel to the randomized Z-home point to 750 mm/s and widened independent X/Y randomization to ±10 mm.

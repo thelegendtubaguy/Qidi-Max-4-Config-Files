@@ -272,13 +272,6 @@ class Manifest:
             raise ValueError("Manifest must define exactly one install.ensure_lines entry.")
         return self.install.ensure_lines[0]
 
-    @property
-    def patch_targets(self) -> tuple[tuple[str, str, str], ...]:
-        return tuple(
-            patch.target_tuple
-            for patch in (*self.patches.set_options, *self.patches.delete_sections)
-        )
-
 
 @dataclass(frozen=True)
 class AllowedPatchTarget:

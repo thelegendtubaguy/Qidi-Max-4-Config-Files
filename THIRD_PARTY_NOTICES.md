@@ -84,19 +84,9 @@ Vendored dependency versions and artifact hashes are recorded in `installer/runt
 |---|---:|---|---|
 | PyYAML | 6.0.2 | MIT | [`LICENSES/PyYAML-MIT.txt`](LICENSES/PyYAML-MIT.txt) |
 | Rich | 13.9.4 | MIT | [`LICENSES/Rich-MIT.txt`](LICENSES/Rich-MIT.txt) |
-| markdown-it-py | 3.0.0 | MIT | [`LICENSES/markdown-it-py-MIT.txt`](LICENSES/markdown-it-py-MIT.txt) |
-| markdown-it | bundled by markdown-it-py | MIT | [`LICENSES/markdown-it-MIT.txt`](LICENSES/markdown-it-MIT.txt) |
-| mdurl | 0.1.2 | MIT | [`LICENSES/mdurl-MIT.txt`](LICENSES/mdurl-MIT.txt) |
-| Pygments | 2.19.2 | BSD-2-Clause | [`LICENSES/Pygments-BSD-2-Clause.txt`](LICENSES/Pygments-BSD-2-Clause.txt), [`LICENSES/Pygments-AUTHORS.txt`](LICENSES/Pygments-AUTHORS.txt) |
 | typing_extensions | 4.12.2 | PSF-2.0 | [`LICENSES/typing_extensions-PSF-2.0.txt`](LICENSES/typing_extensions-PSF-2.0.txt) |
 
-Additional notices retained inside the vendored source include:
-
-- `installer/runtime/vendor/rich/_spinners.py`: cli-spinners, MIT.
-- `installer/runtime/vendor/markdown_it/_punycode.py`: Mathias Bynens and Taneli Hukkinen, MIT.
-- `installer/runtime/vendor/mdurl/_parse.py`: Joyent, Inc. and other Node contributors, MIT.
-- `installer/runtime/vendor/pygments/lexers/robotframework.py`: Nokia Siemens Networks Oyj, Apache-2.0; full text in [`LICENSES/Apache-2.0.txt`](LICENSES/Apache-2.0.txt).
-- `installer/runtime/vendor/pygments/styles/solarized.py`: Solarized, MIT; full text in [`LICENSES/Solarized-MIT.txt`](LICENSES/Solarized-MIT.txt).
+`installer/runtime/vendor/rich/_spinners.py` includes cli-spinners material under the MIT license.
 
 ## OpenSpec-generated workflow files
 

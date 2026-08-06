@@ -60,11 +60,6 @@ def read_text(path: Path) -> str:
 
 
 
-def write_text(path: Path, text: str) -> None:
-    with path.open("w", encoding="utf-8") as handle:
-        handle.write(text)
-
-
 
 def has_section(text: str, section_name: str) -> bool:
     return any(span.name == section_name for span in _section_spans(text.splitlines(keepends=True)))
@@ -122,14 +117,6 @@ def set_option_value(text: str, section_name: str, option_name: str, desired_val
     )
     return "".join(lines)
 
-
-
-def replace_section(text: str, section_name: str, desired_text: str) -> str:
-    lines = text.splitlines(keepends=True)
-    resolved = resolve_unique_section(text, section_name)
-    replacement = desired_text if desired_text.endswith(("\n", "\r\n")) else desired_text + "\n"
-    lines[resolved.header_index:resolved.end_index] = replacement.splitlines(keepends=True)
-    return "".join(lines)
 
 
 

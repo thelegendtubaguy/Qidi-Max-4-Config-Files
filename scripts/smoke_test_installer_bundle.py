@@ -117,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         "--disable-ai-detection",
         "--keep-ai-detection",
         "--keep-system-optimizations",
+        "--reboot-host",
     ):
         if expected not in help_output.stdout:
             raise SystemExit(f"install.sh help output is missing {expected}")
@@ -130,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run_install_printer_root = prepare_printer_root(workspace / "dry-run-install-printer")
         dry_run_install_env = build_env(dry_run_install_printer_root, moonraker_url=url)
         dry_run_install = run_command(
-            [str(bundle_root / "install.sh"), "--dry-run", "--plain"],
+            [str(bundle_root / "install.sh"), "--dry-run", "--plain", "--reboot-host"],
             cwd=bundle_root,
             env=dry_run_install_env,
         )
@@ -142,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("install dry-run smoke test unexpectedly created a backup zip")
         if "Dry-run summary:" not in dry_run_install.stdout:
             raise SystemExit("install dry-run smoke test did not emit the dry-run summary")
+        if "Host reboot dry-run: would schedule a delayed reboot" not in dry_run_install.stdout:
+            raise SystemExit("install dry-run smoke test did not forward --reboot-host")
 
         plain_printer_root = prepare_printer_root(workspace / "plain-printer")
         plain_env = build_env(plain_printer_root, moonraker_url=url)
