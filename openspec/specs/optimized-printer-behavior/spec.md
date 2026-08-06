@@ -65,7 +65,8 @@ Optimized macros SHALL avoid redundant motion and fixed waits while preserving v
 - **WHEN** `G28` requests full, XY, X-only, Y-only, or Z-only homing
 - **THEN** only the required axes are homed unless Z requires unknown XY
 - **AND** `G28 O ...` skips axes that are already homed
-- **AND** Z homes at a configured randomized point around bed center
+- **AND** Z homes at an independently randomized X/Y point within 10 mm of bed center
+- **AND** travel to the Z-home point runs at 750 mm/s
 - **AND** temporary homing acceleration is restored
 - **AND** the stock pre-homing relative X/Y nudge is absent
 
@@ -107,14 +108,18 @@ OrcaSlicer and QIDI Studio start/end packs SHALL remain functionally aligned whi
 - **THEN** start calls `BOX_PRINT_START EXTRUDER=<tool> HOTENDTEMP=<purge temperature>`
 - **AND** waits for vendor motion with `M400`
 - **AND** performs optimized rear extrusion/flush and staged scrape-temperature cleanup
+- **AND** before rear-bed scraping moves 50 mm forward from the chute and traverses to X380 and back to X188 at 400 mm/s to orient the cable chain
+- **AND** moves rearward to Y392 at the final chute-approach speed and keeps scrape motion within Y392–Y395
 - **AND** does not rehome Z between purge cleanup and rear-bed scrape
 - **AND** continues through bed/chamber waits, Z tilt, KAMP mesh, offset application, and sensor enablement
-- **AND** vendor feeder, cutter, retry, runout, and RFID ownership is not replaced
+- **AND** vendor feeder, cutter, retry, runout, RFID, nozzle-wiper, and silicone-finger-brush ownership is not replaced
 
 #### Scenario: External-spool start avoids absent Box behavior
 - **WHEN** the Box stack is unavailable or `enable_box != 1`
 - **THEN** start invalidates retained Box state
 - **AND** does not call `BOX_PRINT_START`, rear extrusion/flush, `CLEAR_NOZZLE`, or `G1 E250`
+- **AND** before rear-bed scraping moves 50 mm forward from the chute and traverses to X380 and back to X188 at 400 mm/s to orient the cable chain
+- **AND** moves rearward to Y392 at the final chute-approach speed and keeps scrape motion within Y392–Y395
 - **AND** wipes/scrapes without extrusion before bed/chamber waits, Z tilt, KAMP mesh, offset application, and sensor enablement
 
 #### Scenario: Prime line remains first-layer aware

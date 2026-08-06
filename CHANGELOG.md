@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.08.06.1
+- Prevented the articulated cable-chain mount from striking the rear enclosure by orienting it with a full-width X traverse before rear-bed scraping and moving the scrape range to Y392–Y395.
+- Increased travel to the randomized Z-home point to 750 mm/s and widened independent X/Y randomization to ±10 mm.
+
 ## 26.08.05.1
 - Reset QIDI Box tool-to-slot mappings to identity after successful prints while preserving touchscreen and runout mappings during active or interrupted prints, with missing-mapping repair and an idle-only Fluidd/console reset macro.
 - Added GPLv3 project licensing and bundled `LICENSE`, `THIRD_PARTY_NOTICES.md`, and component license texts under `LICENSES/`.

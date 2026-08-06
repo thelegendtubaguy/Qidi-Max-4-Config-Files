@@ -79,7 +79,7 @@ Forbidden patterns:
 
 Condition: `all optimized starts`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:203-235`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:217-249`
 
 Direct visible macro calls in branch slice:
 
@@ -102,7 +102,7 @@ Forbidden patterns:
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:236-279`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:250-293`
 
 Direct visible macro calls in branch slice:
 
@@ -147,14 +147,14 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:280-346`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-343`
 
 Direct visible macro calls in branch slice:
 
 - `OPTIMIZED_EXTRUSION_AND_FLUSH`
 - `OPTIMIZED_MOVE_TO_TRASH`
 - `m104`
-- `M106`
+- `_OPTIMIZED_REAR_BED_SCRAPE`
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
 - `_OPTIMIZED_REPORT_BED_TEMP`
@@ -169,7 +169,7 @@ Ordered invariants:
 - `BOX_PRINT_START EXTRUDER={tool} HOTENDTEMP={purge_temp}`
 - `OPTIMIZED_EXTRUSION_AND_FLUSH PURGETEMP={purge_temp} CHAMBER={chamber_target}`
 - `TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={scrape_maximum}`
-- `G1 Z-0.2 F480`
+- `_OPTIMIZED_REAR_BED_SCRAPE`
 - `OPTIMIZED_WAIT_BED S={bed_target} STATUS=wait_bed_temp`
 - `G1 X15 Y202.5 F36000`
 - `_OPTIMIZED_REPORT_BED_TEMP`
@@ -188,7 +188,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:347-387`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:344-384`
 
 Direct visible macro calls in branch slice:
 
@@ -222,6 +222,41 @@ Forbidden patterns:
 - `OPTIMIZED_EXTRUSION_AND_FLUSH`
 - `CLEAR_NOZZLE`
 - `G1 E250`
+
+### rear_bed_scrape_motion
+
+Condition: `fresh Box or external-spool rear-bed scrape`
+
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:166-193`
+
+Direct visible macro calls in branch slice:
+
+- `OPTIMIZED_MOVE_TO_TRASH`
+- `M106`
+
+Ordered invariants:
+
+- `OPTIMIZED_MOVE_TO_TRASH`
+- `M204 S10000`
+- `G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}`
+- `G1 X380 F{opt.rear_scrape_orient_speed_xy}`
+- `G1 X188 F{opt.rear_scrape_orient_speed_xy}`
+- `G1 Y392 F{opt.trash_final_approach_speed_xy}`
+- `G1 Z-0.2 F480`
+- `G1 X15 F200`
+- `G1 Y3`
+- `G1 X-15`
+- `G1 Y-3`
+- `G1 X15`
+- `G1 Z10`
+- `G1 Y383 F12000`
+- `SET_VELOCITY_LIMIT ACCEL={saved_accel}`
+
+Forbidden patterns:
+
+- `G1 Y395 F6000`
+- `G1 Y2`
+- `G1 Y-2`
 
 ## Macro scope
 
