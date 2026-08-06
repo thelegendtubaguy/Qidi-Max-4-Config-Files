@@ -25,10 +25,13 @@ from .backup import (
 )
 from .ensure_lines import ensure_line_after
 from .compatibility import CompatibilityValidationError, load_supported_upgrade_sources
-from .errors import OperationCancelled, PreviousPackageValidationError, UnsupportedFirmwareError
+from .errors import PreviousPackageValidationError, UnsupportedFirmwareError
 from .firmware import detect_firmware_version
 from .host_reboot import arm_auto_update_reboot_followup
-from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
+from .interaction import (
+    maybe_restart_klipper,
+    maybe_restart_pending_service_if_idle,
+)
 from .legacy_manual_install import maybe_reset_legacy_manual_install
 from .fs_atomic import atomic_write_text
 from .manifest import active_patch_entries
@@ -155,16 +158,6 @@ def run_install(
         classify_install_source_patch(paths=paths, patch=patch, firmware=detected_firmware, prior_state=prior_state)
         for patch in manifest.install.source_patches
     )
-
-    if not dry_run and not confirm_yes(
-        reporter=reporter,
-        input_stream=input_stream,
-        question=messages.INSTALL_CONFIRMATION_PROMPT,
-        instruction=messages.INSTALL_CONFIRMATION_INSTRUCTION,
-        cancel_message=messages.INSTALL_CANCELLED,
-    ):
-        reporter.debug(event="install.cancelled", dry_run=False)
-        raise OperationCancelled(messages.INSTALL_CANCELLED)
 
     reporter.status(messages.CREATING_BACKUP)
     started_at = utc_now()
@@ -544,9 +537,11 @@ def _execute_install(
             urlopen=urlopen,
         )
     if paths.restart_marker_path.exists():
-        maybe_restart_pending_service(
+        maybe_restart_pending_service_if_idle(
             paths=paths,
-            allowed_entries={patch.id: patch.destination for patch in manifest.install.source_patches},
+            allowed_entries={
+                patch.id: patch.destination for patch in manifest.install.source_patches
+            },
             reporter=reporter,
             input_stream=input_stream,
             urlopen=urlopen,

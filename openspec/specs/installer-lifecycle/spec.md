@@ -35,7 +35,7 @@ Install, reinstall, restore, and uninstall SHALL execute as serialized, idle-pri
 
 #### Scenario: Installation commits atomically
 - **WHEN** installation changes validated targets
-- **THEN** recoverable preimages exist before the first write
+- **THEN** a configuration backup and recoverable preimages are created automatically before the first write without requesting installation confirmation
 - **AND** the managed tree and guarded patches converge to the selected release
 - **AND** installed state is committed only after postflight verifies the resulting files and ownership ledger
 - **AND** failure restores preimages or records a recovery blocker when compensation cannot complete
@@ -76,7 +76,9 @@ The installer SHALL deploy firmware-scoped Klipper source only from validated pr
 #### Scenario: Activation requires a replacement process
 - **WHEN** managed source changes or pending source activation exists
 - **THEN** activation remains pending until Klipper becomes ready under a different valid process identity
-- **AND** failed or drifted activation remains pending and blocks unsafe continuation
+- **AND** source-changing install and uninstall operations automatically restart Klipper after a fresh idle-state check without requesting separate confirmation
+- **AND** restart verification allows at least 60 seconds for Klipper to become ready under the replacement process identity
+- **AND** active, unknown, failed, or drifted activation remains pending and blocks unsafe continuation
 - **AND** every installer entrypoint resolves pending activation before further release work
 
 ### Requirement: Non-owning QIDI Box reconciliation

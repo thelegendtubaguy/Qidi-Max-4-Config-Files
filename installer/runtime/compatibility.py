@@ -5,7 +5,7 @@ from typing import Any
 
 import yaml
 
-from .manifest import ManifestValidationError, validate_relative_path
+from .manifest import validate_relative_path
 from .models import (
     AllowedPatchTarget,
     Manifest,

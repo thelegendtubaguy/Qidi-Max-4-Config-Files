@@ -677,14 +677,28 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 )
                 self._run_install(paths)
 
+                responses = io.StringIO("Y\nunused\n")
+                base_urlopen = moonraker_urlopen()
+                idle_checks = 0
+
+                def uninstall_urlopen(request, timeout=0):
+                    nonlocal idle_checks
+                    url = getattr(request, "full_url", str(request))
+                    if "/printer/objects/query" in url:
+                        idle_checks += 1
+                    return base_urlopen(request, timeout=timeout)
+
                 run_uninstall(
                     paths,
                     self.manifest,
                     self.compatibility,
                     PlainReporter(io.StringIO()),
-                    urlopen=moonraker_urlopen(),
+                    input_stream=responses,
+                    urlopen=uninstall_urlopen,
                 )
 
+                self.assertEqual(idle_checks, 2)
+                self.assertEqual(responses.readline(), "unused\n")
                 self._assert_homing_speed(printer_root, "50")
                 self.assertEqual(
                     (paths.managed_klipper_root / "klippy/extras/homing.py").read_bytes(),
