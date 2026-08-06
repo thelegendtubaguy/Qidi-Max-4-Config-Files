@@ -4,6 +4,7 @@ import io
 import shutil
 import subprocess
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from installer.runtime.errors import ActivePrintError, OperationCancelled, Prefl
 from installer.runtime.manifest import load_manifest
 from installer.runtime.reporter import PlainReporter
 from installer.runtime.runner import run_install
+from installer.runtime.state_file import load_installed_state
 from installer.tests.helpers import (
     MOONRAKER_QUERY_URL,
     REPO_ROOT,
@@ -146,7 +148,7 @@ class InstallFlowTests(unittest.TestCase):
             for patch in guarded
             if sum(firmware in variant.firmwares for variant in patch.variants) == 1
         ]
-        self.assertEqual(len(active), 28)
+        self.assertEqual(len(active), 29)
 
         run_install(
             paths,
@@ -160,7 +162,12 @@ class InstallFlowTests(unittest.TestCase):
             klipper_cfg.resolve_unique_option(printer_cfg, "stepper_x", "homing_speed").value,
             "100",
         )
-        self.assertIn("tachometer_poll_interval: 0.0005", printer_cfg)
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(
+                printer_cfg, "heater_fan hotend_fan", "tachometer_poll_interval"
+            ).value,
+            "0.00075",
+        )
         self.assertIn("# [smart_output_pin polar_cooler]", printer_cfg)
         self.assertIn("# [smart_output_pin beeper]", printer_cfg)
         self.assertIn(
@@ -174,6 +181,123 @@ class InstallFlowTests(unittest.TestCase):
             "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a",
             state,
         )
+
+    def test_install_sets_hotend_fan_tachometer_interval_for_all_firmware_baselines(self):
+        stock_by_firmware = {
+            "01.01.06.03": "0.0015",
+            "01.01.06.04": "0.0015",
+            "01.01.06.05": "0.0005",
+        }
+        for firmware, stock_value in stock_by_firmware.items():
+            with self.subTest(firmware=firmware):
+                printer_root = copy_base_runtime()
+                if firmware != "01.01.06.03":
+                    self._set_firmware_version(printer_root, firmware)
+                    self._overlay_stock_snapshot(printer_root, firmware)
+                paths = resolve_runtime_paths(
+                    bundle_root=REPO_ROOT,
+                    environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+                )
+                printer_cfg_path = paths.config_root / "printer.cfg"
+                before = printer_cfg_path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        before, "heater_fan hotend_fan", "tachometer_poll_interval"
+                    ).value,
+                    stock_value,
+                )
+
+                run_install(
+                    paths,
+                    self.manifest,
+                    reporter=PlainReporter(io.StringIO()),
+                    urlopen=moonraker_urlopen(),
+                )
+
+                after = printer_cfg_path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        after, "heater_fan hotend_fan", "tachometer_poll_interval"
+                    ).value,
+                    "0.00075",
+                )
+                state = load_installed_state(paths.config_root / "tltg_optimized_state.yaml")
+                entry = next(
+                    item
+                    for item in state.patch_ledger
+                    if item.id == "hotend_fan_tachometer_poll_interval"
+                )
+                self.assertEqual(entry.expected, stock_value)
+                self.assertEqual(entry.desired, "0.00075")
+                self.assertEqual(entry.install_result, "applied")
+
+    def test_upgrade_adds_ownership_for_preexisting_stock_hotend_fan_interval(self):
+        firmware = "01.01.06.05"
+        printer_root = copy_base_runtime()
+        self._set_firmware_version(printer_root, firmware)
+        self._overlay_stock_snapshot(printer_root, firmware)
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        legacy_manifest = replace(
+            self.manifest,
+            package=replace(
+                self.manifest.package,
+                version="26.08.06.1",
+                known_versions=tuple(
+                    version
+                    for version in self.manifest.package.known_versions
+                    if version != "26.08.06.2"
+                ),
+            ),
+            patches=replace(
+                self.manifest.patches,
+                set_options=tuple(
+                    patch
+                    for patch in self.manifest.patches.set_options
+                    if patch.id != "hotend_fan_tachometer_poll_interval"
+                ),
+            ),
+        )
+
+        run_install(
+            paths,
+            legacy_manifest,
+            reporter=PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        prior_state = load_installed_state(paths.config_root / "tltg_optimized_state.yaml")
+        self.assertEqual(prior_state.package_version, "26.08.06.1")
+        self.assertNotIn(
+            "hotend_fan_tachometer_poll_interval",
+            {entry.id for entry in prior_state.patch_ledger},
+        )
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(
+                (paths.config_root / "printer.cfg").read_text(encoding="utf-8"),
+                "heater_fan hotend_fan",
+                "tachometer_poll_interval",
+            ).value,
+            "0.0005",
+        )
+
+        run_install(
+            paths,
+            self.manifest,
+            reporter=PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        updated_state = load_installed_state(paths.config_root / "tltg_optimized_state.yaml")
+        entry = next(
+            item
+            for item in updated_state.patch_ledger
+            if item.id == "hotend_fan_tachometer_poll_interval"
+        )
+        self.assertEqual(updated_state.package_version, "26.08.06.2")
+        self.assertEqual((entry.expected, entry.desired, entry.install_result), (
+            "0.0005", "0.00075", "applied"
+        ))
 
     def test_install_replaces_filament_sensor_and_resume_for_all_firmware_baselines(self):
         for firmware in ("01.01.06.03", "01.01.06.04", "01.01.06.05"):
@@ -688,7 +812,7 @@ class InstallFlowTests(unittest.TestCase):
             )
 
         printer_cfg = (paths.config_root / "printer.cfg").read_text(encoding="utf-8")
-        self.assertIn("tachometer_poll_interval: 0.0005", printer_cfg)
+        self.assertIn("tachometer_poll_interval: 0.00075", printer_cfg)
         self.assertIn("# [smart_output_pin polar_cooler]", printer_cfg)
         self.assertIn(
             "SET_KINEMATIC_POSITION Z=150",

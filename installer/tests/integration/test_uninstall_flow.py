@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import shutil
 import unittest
 
 from installer.runtime import klipper_cfg
@@ -11,7 +12,14 @@ from installer.runtime.manifest import load_manifest
 from installer.runtime.reporter import PlainReporter
 from installer.runtime.runner import run_install
 from installer.runtime.uninstall import run_uninstall
-from installer.tests.helpers import REPO_ROOT, build_env, copy_base_runtime, MOONRAKER_QUERY_URL, moonraker_urlopen
+from installer.tests.helpers import (
+    MOONRAKER_QUERY_URL,
+    REPO_ROOT,
+    build_env,
+    copy_base_runtime,
+    homing_fixture_bytes,
+    moonraker_urlopen,
+)
 
 
 class UninstallFlowTests(unittest.TestCase):
@@ -28,6 +36,20 @@ class UninstallFlowTests(unittest.TestCase):
             ),
             "homing_override",
         ).text
+
+    def _set_firmware_version(self, printer_root, version):
+        (printer_root / "firmware_manifest.json").write_text(
+            f'{"{"}"SOC": {{"version": "{version}"}}{"}"}\n',
+            encoding="utf-8",
+        )
+
+    def _overlay_stock_snapshot(self, printer_root, version):
+        source = REPO_ROOT / "installer/stock/qidi-max4-defaults/firmwares" / version / "config"
+        shutil.copytree(source, printer_root / "config", dirs_exist_ok=True)
+        if version in {"01.01.06.04", "01.01.06.05"}:
+            (printer_root / "klipper/klippy/extras/homing.py").write_bytes(
+                homing_fixture_bytes(version)
+            )
 
     def _install_first(self):
         printer_root = copy_base_runtime()
@@ -78,6 +100,96 @@ class UninstallFlowTests(unittest.TestCase):
         self.assertIn("Uninstalled.", output)
         self.assertIn("Klipper service process restarted and verified.", output)
         self.assertTrue(result.backup_zip_path.exists())
+
+    def test_uninstall_restores_hotend_fan_interval_for_each_firmware(self):
+        stock_by_firmware = {
+            "01.01.06.03": "0.0015",
+            "01.01.06.04": "0.0015",
+            "01.01.06.05": "0.0005",
+        }
+        for firmware, stock_value in stock_by_firmware.items():
+            with self.subTest(firmware=firmware):
+                printer_root = copy_base_runtime()
+                if firmware != "01.01.06.03":
+                    self._set_firmware_version(printer_root, firmware)
+                    self._overlay_stock_snapshot(printer_root, firmware)
+                paths = resolve_runtime_paths(
+                    bundle_root=REPO_ROOT,
+                    environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+                )
+                run_install(
+                    paths,
+                    self.manifest,
+                    PlainReporter(io.StringIO()),
+                    urlopen=moonraker_urlopen(),
+                )
+                printer_cfg_path = paths.config_root / "printer.cfg"
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        printer_cfg_path.read_text(encoding="utf-8"),
+                        "heater_fan hotend_fan",
+                        "tachometer_poll_interval",
+                    ).value,
+                    "0.00075",
+                )
+
+                run_uninstall(
+                    paths,
+                    self.manifest,
+                    self.compatibility,
+                    PlainReporter(io.StringIO()),
+                    urlopen=moonraker_urlopen(),
+                )
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        printer_cfg_path.read_text(encoding="utf-8"),
+                        "heater_fan hotend_fan",
+                        "tachometer_poll_interval",
+                    ).value,
+                    stock_value,
+                )
+
+    def test_uninstall_preserves_user_modified_hotend_fan_interval(self):
+        firmware = "01.01.06.05"
+        printer_root = copy_base_runtime()
+        self._set_firmware_version(printer_root, firmware)
+        self._overlay_stock_snapshot(printer_root, firmware)
+        paths = resolve_runtime_paths(
+            bundle_root=REPO_ROOT,
+            environ=build_env(printer_root, moonraker_url=MOONRAKER_QUERY_URL),
+        )
+        run_install(
+            paths,
+            self.manifest,
+            PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        printer_cfg_path = paths.config_root / "printer.cfg"
+        printer_cfg_path.write_text(
+            klipper_cfg.set_option_value(
+                printer_cfg_path.read_text(encoding="utf-8"),
+                "heater_fan hotend_fan",
+                "tachometer_poll_interval",
+                "0.0008",
+            ),
+            encoding="utf-8",
+        )
+
+        run_uninstall(
+            paths,
+            self.manifest,
+            self.compatibility,
+            PlainReporter(io.StringIO()),
+            urlopen=moonraker_urlopen(),
+        )
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(
+                printer_cfg_path.read_text(encoding="utf-8"),
+                "heater_fan hotend_fan",
+                "tachometer_poll_interval",
+            ).value,
+            "0.0008",
+        )
 
     def test_uninstall_preserves_user_modified_homing_override(self):
         printer_root = self._install_first()
