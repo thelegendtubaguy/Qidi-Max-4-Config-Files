@@ -15,11 +15,20 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 
 from . import messages, safety
-from .errors import ActivePrintError, InstallerError, PrinterStateError
+from .errors import (
+    ActivePrintError,
+    FirmwareDetectionError,
+    InstallerError,
+    PreflightTargetsError,
+    PrinterStateError,
+)
+from .firmware import detect_firmware_version
 from .fs_atomic import atomic_write_text
 from .models import RuntimePaths
+from .postflight import verify_install_postflight
 from .process_restart import ProcessRestartError, restart_pending
 from .manifest import ManifestValidationError, load_manifest
+from .state_file import StateValidationError, load_installed_state
 from .naming import BUNDLE_ROOT_NAME
 from .sudo import (
     PUBLIC_DEFAULT_SUDO_PASSWORD,
@@ -36,6 +45,7 @@ DEFAULT_ARCHIVE_URL = "https://github.com/thelegendtubaguy/Qidi-Max-4-Optimized/
 DEFAULT_CHECKSUM_URL = f"{DEFAULT_ARCHIVE_URL}.sha256"
 LOCK_HELD_ENV = "TLTG_OPTIMIZED_INSTALLER_LOCK_HELD"
 STATE_FILE = "config/tltg_optimized_auto_update_state.json"
+ENROLLMENT_FILE = ".tltg_optimized_auto_update_enrolled"
 SERVICE_NAME = "tltg-optimized-auto-update.service"
 TIMER_NAME = "tltg-optimized-auto-update.timer"
 SYSTEMD_DIR = Path("/etc/systemd/system")
@@ -171,6 +181,7 @@ def enable_auto_updates(
         )
     except SudoError as exc:
         raise AutoUpdateError(exc.message) from exc
+    _write_enrollment(paths)
     reporter.line(success_message)
 
 
@@ -186,6 +197,7 @@ def disable_auto_updates(
     run: RunFn = subprocess.run,
     require_sudo: bool = True,
 ) -> None:
+    _remove_enrollment(paths)
     if shutil.which("systemctl") is None:
         _remove_state(paths)
         reporter.line(messages.AUTO_UPDATE_DISABLED)
@@ -256,7 +268,11 @@ def run_auto_update_check(
         reporter.line(messages.AUTO_UPDATE_SKIPPED_CHECKSUM_UNAVAILABLE)
         return AutoUpdateRunResult(action="skipped-checksum-unavailable")
     state = _read_state(paths)
-    if state.get("latest_checksum") == checksum:
+    stored_checksum = state.get("latest_checksum")
+    reconciliation_required = False
+    if stored_checksum == checksum and auto_update_enrolled(paths):
+        reconciliation_required = _installation_requires_reconciliation(paths)
+    if stored_checksum == checksum and not reconciliation_required:
         reporter.line(messages.AUTO_UPDATE_ALREADY_CURRENT)
         return AutoUpdateRunResult(action="already-current", checksum=checksum)
 
@@ -269,12 +285,19 @@ def run_auto_update_check(
         reporter.line(messages.AUTO_UPDATE_SKIPPED_UNKNOWN_STATE)
         return AutoUpdateRunResult(action="skipped-unknown-printer-state", checksum=checksum)
 
-    if "latest_checksum" not in state:
+    if not auto_update_enrolled(paths):
         _write_state(paths, checksum)
         reporter.line(messages.AUTO_UPDATE_INITIALIZED)
         return AutoUpdateRunResult(action="initialized", checksum=checksum)
 
-    reporter.line(messages.AUTO_UPDATE_AVAILABLE)
+    if "latest_checksum" not in state:
+        reconciliation_required = True
+
+    reporter.line(
+        messages.AUTO_UPDATE_RECONCILING
+        if reconciliation_required
+        else messages.AUTO_UPDATE_AVAILABLE
+    )
     _run_latest_installer(
         paths=paths,
         archive_url=_archive_url(env),
@@ -285,7 +308,10 @@ def run_auto_update_check(
     )
     _write_state(paths, checksum)
     reporter.line(messages.AUTO_UPDATE_COMPLETE)
-    return AutoUpdateRunResult(action="updated", checksum=checksum)
+    return AutoUpdateRunResult(
+        action="reconciled" if reconciliation_required else "updated",
+        checksum=checksum,
+    )
 
 
 def fetch_latest_checksum(
@@ -501,6 +527,54 @@ def _remove_state(paths: RuntimePaths) -> None:
         return
 
 
+def _write_enrollment(paths: RuntimePaths) -> None:
+    atomic_write_text(enrollment_path(paths), "1\n", mode=0o600)
+
+
+def _remove_enrollment(paths: RuntimePaths) -> None:
+    try:
+        enrollment_path(paths).unlink()
+    except FileNotFoundError:
+        return
+
+
+def auto_update_enrolled(paths: RuntimePaths) -> bool:
+    path = enrollment_path(paths)
+    return path.is_file() and not path.is_symlink()
+
+
+def _installation_requires_reconciliation(paths: RuntimePaths) -> bool:
+    try:
+        manifest = load_manifest(paths.installer_root / "package.yaml")
+        detected_firmware = detect_firmware_version(paths.firmware_manifest_path)
+    except (ManifestValidationError, FirmwareDetectionError) as exc:
+        raise AutoUpdateError(messages.AUTO_UPDATE_INSTALLER_FAILED) from exc
+
+    installed_state_path = paths.printer_data_root / manifest.state_file
+    if not installed_state_path.is_file() or installed_state_path.is_symlink():
+        return True
+    try:
+        installed_state = load_installed_state(installed_state_path)
+    except StateValidationError:
+        return True
+    if (
+        installed_state.package_id != manifest.package.id
+        or installed_state.package_version != manifest.package.version
+        or installed_state.runtime_firmware != detected_firmware
+        or detected_firmware not in manifest.firmware.supported
+    ):
+        return True
+    try:
+        verify_install_postflight(
+            paths=paths,
+            manifest=manifest,
+            detected_firmware=detected_firmware,
+        )
+    except PreflightTargetsError:
+        return True
+    return False
+
+
 def current_auto_update_checksum(paths: RuntimePaths) -> str | None:
     value = _read_state(paths).get("latest_checksum")
     return value if isinstance(value, str) and len(value) == 64 else None
@@ -508,3 +582,7 @@ def current_auto_update_checksum(paths: RuntimePaths) -> str | None:
 
 def state_path(paths: RuntimePaths) -> Path:
     return paths.printer_data_root / STATE_FILE
+
+
+def enrollment_path(paths: RuntimePaths) -> Path:
+    return paths.printer_data_root / ENROLLMENT_FILE
