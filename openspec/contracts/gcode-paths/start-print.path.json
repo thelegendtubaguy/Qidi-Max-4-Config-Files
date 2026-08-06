@@ -136,7 +136,7 @@
         "BOX_PRINT_START EXTRUDER={tool} HOTENDTEMP={purge_temp}",
         "OPTIMIZED_EXTRUSION_AND_FLUSH PURGETEMP={purge_temp} CHAMBER={chamber_target}",
         "TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={scrape_maximum}",
-        "G1 Z-0.2 F480",
+        "_OPTIMIZED_REAR_BED_SCRAPE",
         "OPTIMIZED_WAIT_BED S={bed_target} STATUS=wait_bed_temp",
         "G1 X15 Y202.5 F36000",
         "_OPTIMIZED_REPORT_BED_TEMP",
@@ -174,6 +174,36 @@
         "OPTIMIZED_EXTRUSION_AND_FLUSH",
         "CLEAR_NOZZLE",
         "G1 E250"
+      ]
+    },
+    {
+      "name": "rear_bed_scrape_motion",
+      "source_macro": "_OPTIMIZED_REAR_BED_SCRAPE",
+      "condition": "fresh Box or external-spool rear-bed scrape",
+      "slice": {
+        "start": "{% set km = printer[\"gcode_macro _km_globals\"] %}"
+      },
+      "must_include_order": [
+        "OPTIMIZED_MOVE_TO_TRASH",
+        "M204 S10000",
+        "G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}",
+        "G1 X380 F{opt.rear_scrape_orient_speed_xy}",
+        "G1 X188 F{opt.rear_scrape_orient_speed_xy}",
+        "G1 Y392 F{opt.trash_final_approach_speed_xy}",
+        "G1 Z-0.2 F480",
+        "G1 X15 F200",
+        "G1 Y3",
+        "G1 X-15",
+        "G1 Y-3",
+        "G1 X15",
+        "G1 Z10",
+        "G1 Y383 F12000",
+        "SET_VELOCITY_LIMIT ACCEL={saved_accel}"
+      ],
+      "must_not_include": [
+        "G1 Y395 F6000",
+        "G1 Y2",
+        "G1 Y-2"
       ]
     }
   ],
