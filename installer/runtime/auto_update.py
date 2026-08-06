@@ -31,14 +31,10 @@ from .manifest import ManifestValidationError, load_manifest
 from .state_file import StateValidationError, load_installed_state
 from .naming import BUNDLE_ROOT_NAME
 from .sudo import (
-    PUBLIC_DEFAULT_SUDO_PASSWORD,
-    SUDO_PASSWORD_ENV,
     SudoError,
     authenticate_sudo as _authenticate_sudo,
-    run_sudo as _run_sudo,
     run_sudo_ignore_failure as _run_sudo_ignore_failure,
     run_sudo_or_raise as _run_sudo_or_raise,
-    sudo_command as _sudo_command,
 )
 
 DEFAULT_ARCHIVE_URL = "https://github.com/thelegendtubaguy/Qidi-Max-4-Optimized/releases/latest/download/tltg-optimized-macros.tar.gz"
@@ -461,12 +457,6 @@ def _validate_archive_members(members: list[tarfile.TarInfo]) -> None:
             has_install_sh = True
     if not has_install_sh:
         raise AutoUpdateError(messages.AUTO_UPDATE_INSTALLER_FAILED)
-
-
-def _run_or_raise(command: list[str], message: str, *, run: RunFn) -> None:
-    result = run(command)
-    if result.returncode != 0:
-        raise AutoUpdateError(message)
 
 
 def _run_ignore_failure(command: list[str], *, run: RunFn) -> None:

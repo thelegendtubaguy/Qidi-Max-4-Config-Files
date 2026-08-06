@@ -643,39 +643,6 @@ def _ensure_non_empty_snapshot(snapshot: dict[str, bytes], source_directory: str
     )
 
 
-def _required_runtime_directories(
-    *,
-    destination_root: Path,
-    target_files: set[Path],
-) -> set[Path]:
-    required_directories = {destination_root}
-    for target_path in target_files:
-        current = target_path.parent
-        while current != destination_root.parent:
-            required_directories.add(current)
-            if current == destination_root:
-                break
-            current = current.parent
-    return required_directories
-
-
-def _remove_extra_runtime_directories(
-    *,
-    destination_root: Path,
-    required_directories: set[Path],
-) -> None:
-    current_directories = {item for item in destination_root.rglob("*") if item.is_dir()}
-    extra_directories = sorted(
-        current_directories - required_directories,
-        key=lambda item: len(item.parts),
-        reverse=True,
-    )
-    for directory in extra_directories:
-        if directory.exists() and not any(directory.iterdir()):
-            directory.rmdir()
-            fsync_directory(directory.parent)
-
-
 def _parse_backup_timestamp(value: str) -> datetime | None:
     try:
         return datetime.strptime(value, BACKUP_TIMESTAMP_FORMAT).replace(tzinfo=timezone.utc)

@@ -18,7 +18,6 @@ from .path_safety import (
 from .models import (
     InstalledState,
     Manifest,
-    PatchLedgerEntry,
     PatchTargetIssue,
     PreflightReport,
     RuntimePaths,
@@ -27,32 +26,6 @@ from .models import (
 DiskUsageFn = Callable[[Path], object]
 UrlOpenFn = Callable[..., object]
 
-
-
-def run_install_preflight(
-    *,
-    paths: RuntimePaths,
-    manifest: Manifest,
-    reporter=None,
-    disk_usage: DiskUsageFn = shutil.disk_usage,
-    urlopen: UrlOpenFn = urllib.request.urlopen,
-    detected_firmware: str | None = None,
-    prior_state: InstalledState | None = None,
-) -> None:
-    run_install_environment_preflight(
-        paths=paths,
-        manifest=manifest,
-        reporter=reporter,
-        disk_usage=disk_usage,
-        urlopen=urlopen,
-    )
-    run_install_config_preflight(
-        paths=paths,
-        manifest=manifest,
-        reporter=reporter,
-        detected_firmware=detected_firmware,
-        prior_state=prior_state,
-    )
 
 
 

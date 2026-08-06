@@ -36,12 +36,10 @@ def prepare_sys_path(bundle_root: Path) -> Path:
 
 
 
-def validate_vendored_imports(bundle_root: Path, vendor_root: Path) -> None:
+def validate_vendored_imports(vendor_root: Path) -> None:
     from installer.runtime.vendor_imports import (
         VendoredImportError,
-        find_optional_vendored_module_origin,
         import_required_vendored_module,
-        purge_non_vendored_module,
     )
 
     try:
@@ -51,16 +49,12 @@ def validate_vendored_imports(bundle_root: Path, vendor_root: Path) -> None:
             "Vendored yaml import did not resolve inside installer/runtime/vendor."
         ) from exc
 
-    purge_non_vendored_module("rich", vendor_root)
-    find_optional_vendored_module_origin("rich", vendor_root)
-
-
 
 def main(argv: list[str] | None = None) -> int:
     bundle_root = bundle_root_from_file(__file__)
     try:
         vendor_root = prepare_sys_path(bundle_root)
-        validate_vendored_imports(bundle_root, vendor_root)
+        validate_vendored_imports(vendor_root)
         from installer.runtime.cli import main as cli_main
     except KeyboardInterrupt:
         sys.stderr.write("Interrupted. No further installer actions will run.\n")
