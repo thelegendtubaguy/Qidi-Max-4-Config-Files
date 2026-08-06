@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from installer.runtime import klipper_cfg
-from installer.runtime.auto_update import LOCK_HELD_ENV, run_auto_update_check, state_path
+from installer.runtime.auto_update import AutoUpdateError, LOCK_HELD_ENV, run_auto_update_check, state_path
 from installer.runtime.backup import load_backup_snapshot, snapshot_runtime_tree
 from installer.runtime.cli import resolve_runtime_paths
 from installer.runtime.compatibility import load_supported_upgrade_sources
@@ -126,6 +126,43 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 self.assertEqual(entry.firmware, firmware)
                 self.assertEqual(entry.original_bytes, stock_source)
                 self.assertEqual(entry.original_sha256, hashlib.sha256(stock_source).hexdigest())
+
+    def test_noninteractive_box_reconciliation_adds_missing_mappings_without_replacing_existing_ones(self):
+        printer_root, paths, _ = self._fixture("01.01.06.03")
+        saved_variables_path = printer_root / "config/saved_variables.cfg"
+        saved_variables_path.write_text(
+            "[Variables]\n"
+            "box_count = 2\n"
+            "enable_box = 1\n"
+            "value_t0 = 'slot0'\n"
+            "value_t1 = 'slot3'\n"
+            "value_t2 = 'slot2'\n"
+            "value_t3 = 'slot3'\n",
+            encoding="utf-8",
+        )
+
+        self._run_install(paths)
+
+        saved_variables = saved_variables_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            klipper_cfg.resolve_unique_option(
+                saved_variables, "Variables", "value_t1"
+            ).value,
+            "'slot3'",
+        )
+        for tool in range(4, 8):
+            self.assertEqual(
+                klipper_cfg.resolve_unique_option(
+                    saved_variables, "Variables", f"value_t{tool}"
+                ).value,
+                f"'slot{tool}'",
+            )
+        self.assertNotIn(
+            "value_t",
+            (paths.config_root / "tltg_optimized_state.yaml").read_text(
+                encoding="utf-8"
+            ),
+        )
 
     def test_2606151_upgrade_migrates_65_and_adds_source_ledger_for_all_variants(self):
         for firmware, source_variant, _ in SOURCE_CASES:
@@ -283,6 +320,63 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                     desired_sha256,
                 )
                 self.assertFalse(paths.restart_marker_path.exists())
+
+    def test_auto_update_checksum_mismatch_preserves_bundle_and_release_state(self):
+        printer_root, _, _ = self._fixture("01.01.06.03")
+        bundle_root = temp_path("auto-update-mismatch-") / "tltg-optimized-macros"
+        bundle_root.mkdir()
+        (bundle_root / "old.txt").write_text("old bundle", encoding="utf-8")
+        paths = resolve_runtime_paths(
+            bundle_root=bundle_root,
+            environ=build_env(
+                printer_root,
+                moonraker_url="http://moonraker.invalid/printer/objects/query?print_stats",
+            ),
+        )
+        old_checksum = "1" * 64
+        advertised_checksum = "2" * 64
+        state_path(paths).write_text(
+            json.dumps({"latest_checksum": old_checksum}), encoding="utf-8"
+        )
+        child_calls = []
+
+        def urlopen(request, timeout=0):
+            url = getattr(request, "full_url", str(request))
+            if url.endswith(".sha256"):
+                return _BytesResponse(f"{advertised_checksum} bundle\n".encode())
+            if url.endswith(".tar.gz"):
+                return _BytesResponse(b"not the advertised archive")
+            if "printer/objects/query" in url:
+                return _JsonResponse(
+                    {"result": {"status": {"print_stats": {"state": "standby"}}}}
+                )
+            self.fail(f"Unexpected URL: {url}")
+
+        with self.assertRaises(AutoUpdateError):
+            run_auto_update_check(
+                paths=paths,
+                reporter=PlainReporter(io.StringIO()),
+                environ={
+                    "TLTG_AUTO_UPDATE_CHECKSUM_URL": "https://example.invalid/latest.sha256",
+                    "TLTG_AUTO_UPDATE_ARCHIVE_URL": "https://example.invalid/latest.tar.gz",
+                },
+                urlopen=urlopen,
+                run=lambda command, **kwargs: (
+                    child_calls.append(command)
+                    or subprocess.CompletedProcess(command, 0)
+                ),
+            )
+
+        self.assertEqual(child_calls, [])
+        self.assertEqual(
+            json.loads(state_path(paths).read_text(encoding="utf-8"))[
+                "latest_checksum"
+            ],
+            old_checksum,
+        )
+        self.assertEqual(
+            (bundle_root / "old.txt").read_text(encoding="utf-8"), "old bundle"
+        )
 
     def test_source_write_failure_rolls_back_source_and_marker_for_all_variants(self):
         for firmware, source_variant, _ in SOURCE_CASES:
