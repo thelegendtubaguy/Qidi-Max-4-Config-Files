@@ -6,7 +6,7 @@ package:
   id: qidi-max4-optimized
   display_name: QIDI Max 4 Optimized
   printer_model: qidi-max4
-  version: "26.07.26.14"
+  version: "26.08.06.3"
   known_versions:
     - "26.04.21.1"
     - "26.04.27.1"
@@ -43,11 +43,17 @@ package:
     - "26.07.26.12"
     - "26.07.26.13"
     - "26.07.26.14"
+    - "26.07.28.1"
+    - "26.08.05.1"
+    - "26.08.06.1"
+    - "26.08.06.2"
+    - "26.08.06.3"
 
 firmware:
   supported:
     - "01.01.06.03"
     - "01.01.06.04"
+    - "01.01.06.05"
 
 backup:
   source_directory: "config"
@@ -124,6 +130,14 @@ install:
         - firmware: "01.01.06.04"
           expected_sha256: "ff0439f8b9e702537f66c16508f7b0a137b27cff51eb653aa951172d3e5184a0"
           desired_sha256: "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3"
+        - firmware: "01.01.06.04"
+          source: "klipper/qidi/homing-sync-reset.py"
+          expected_sha256: "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761"
+          desired_sha256: "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a"
+        - firmware: "01.01.06.05"
+          source: "klipper/qidi/homing-sync-reset.py"
+          expected_sha256: "0310d9ed0a838b2a7ecff8cd2ec15488b1ae3d8f165a458addd16d8366a60761"
+          desired_sha256: "09a57808075b7022ad65619f5a23deeec80c5d682a43e8ee101f8d62c984f33a"
 
 patches:
   set_options:
@@ -135,7 +149,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50"
           desired: "100"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50"
           desired: "100"
 
@@ -147,7 +161,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50.0"
           desired: "55.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50.0"
           desired: "55.0"
 
@@ -159,7 +173,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50.0"
           desired: "20.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50.0"
           desired: "20.0"
 
@@ -171,7 +185,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "200.0"
           desired: "1000.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "200.0"
           desired: "1000.0"
 
@@ -183,7 +197,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50"
           desired: "100"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50"
           desired: "100"
 
@@ -195,7 +209,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50.0"
           desired: "55.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50.0"
           desired: "55.0"
 
@@ -207,7 +221,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "50.0"
           desired: "20.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50.0"
           desired: "20.0"
 
@@ -219,7 +233,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "200.0"
           desired: "1000.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "200.0"
           desired: "1000.0"
 
@@ -231,7 +245,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "10.0"
           desired: "5.0"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "10.0"
           desired: "5.0"
 
@@ -243,7 +257,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "150"
           desired: "600"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "150"
           desired: "600"
 
@@ -255,7 +269,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "150"
           desired: "600"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "150"
           desired: "600"
 
@@ -267,9 +281,21 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "CANCEL_PRINT"
           desired: "OPTIMIZED_CANCEL_PRINT_ON_ERROR"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "CANCEL_PRINT"
           desired: "OPTIMIZED_CANCEL_PRINT_ON_ERROR"
+
+    - id: hotend_fan_tachometer_poll_interval
+      file: "config/printer.cfg"
+      section: "heater_fan hotend_fan"
+      option: "tachometer_poll_interval"
+      variants:
+        - firmwares: ["01.01.06.03", "01.01.06.04"]
+          expected: "0.0015"
+          desired: "0.00075"
+        - firmwares: ["01.01.06.05"]
+          expected: "0.0005"
+          desired: "0.00075"
 
     - id: timelapse_take_frame_verbose
       file: "config/timelapse.cfg"
@@ -279,7 +305,7 @@ patches:
         - firmwares: ["01.01.06.03"]
           expected: "True"
           desired: "False"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "True"
           desired: "False"
 
@@ -288,7 +314,7 @@ patches:
       section: "closed_loop x"
       option: "query_cycle"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "5"
           desired: "10"
 
@@ -297,7 +323,7 @@ patches:
       section: "closed_loop y"
       option: "query_cycle"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "5"
           desired: "10"
 
@@ -306,7 +332,7 @@ patches:
       section: "closed_loop x"
       option: "trigger_current"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "400"
           desired: "400"
 
@@ -315,7 +341,7 @@ patches:
       section: "closed_loop x"
       option: "trigger_time"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "2"
           desired: "2"
 
@@ -324,7 +350,7 @@ patches:
       section: "closed_loop x"
       option: "trigger_speed"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50"
           desired: "50"
 
@@ -333,7 +359,7 @@ patches:
       section: "closed_loop y"
       option: "trigger_current"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "400"
           desired: "400"
 
@@ -342,7 +368,7 @@ patches:
       section: "closed_loop y"
       option: "trigger_time"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "2"
           desired: "2"
 
@@ -351,7 +377,7 @@ patches:
       section: "closed_loop y"
       option: "trigger_speed"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "50"
           desired: "50"
 
@@ -360,7 +386,7 @@ patches:
       section: "temperature_sensor Chamber_Thermal_Protection_Sensor"
       option: "max_temp"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "150"
           desired: "170"
 
@@ -369,7 +395,7 @@ patches:
       section: "fila25"
       option: "filament"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "PA-CF"
           desired: "PA6-CF"
 
@@ -378,7 +404,7 @@ patches:
       section: "fila25"
       option: "type"
       variants:
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected: "PA-CF"
           desired: "PA6-CF"
 
@@ -389,7 +415,7 @@ patches:
       variants:
         - firmwares: ["01.01.06.03"]
           expected_normalized_sha256: "4466d08166d675b207e2256e4072b1b79ca5b3d83b07a272efc2bef4d41ab4cc"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected_normalized_sha256: "82ddb60dd79950a1b0e551295aca9c3c05cd3f4f0ed77ac2888d4faf18c724a8"
 
     - id: pause_resume_cancel_resume
@@ -398,7 +424,7 @@ patches:
       variants:
         - firmwares: ["01.01.06.03"]
           expected_normalized_sha256: "b11be3af49980c38029cfeaf9dcbd4db8bb2e5970f40b2bb7626fe7337a86017"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected_normalized_sha256: "b11be3af49980c38029cfeaf9dcbd4db8bb2e5970f40b2bb7626fe7337a86017"
 
     - id: kinematics_homing_override
@@ -407,7 +433,7 @@ patches:
       variants:
         - firmwares: ["01.01.06.03"]
           expected_normalized_sha256: "6a924478b351dea193bf1060f5747b151bba3de4c5627c7faac741ad7b164cf4"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected_normalized_sha256: "6a924478b351dea193bf1060f5747b151bba3de4c5627c7faac741ad7b164cf4"
 
     - id: start_end_apply_print_offset
@@ -416,7 +442,7 @@ patches:
       variants:
         - firmwares: ["01.01.06.03"]
           expected_normalized_sha256: "ea8be4dae3bc5bbe881b8e3ca5c49e0b28a74b17cb9a4d8515d598bd006ce3a7"
-        - firmwares: ["01.01.06.04"]
+        - firmwares: ["01.01.06.04", "01.01.06.05"]
           expected_normalized_sha256: "ea8be4dae3bc5bbe881b8e3ca5c49e0b28a74b17cb9a4d8515d598bd006ce3a7"
 
 postflight:
@@ -459,3 +485,29 @@ system_optimizations:
   moonraker_metadata_3mf:
     file: /home/qidi/moonraker/moonraker/components/file_manager/metadata.py
     restart_service: moonraker.service
+  rockchip_root_sync:
+    id: rockchip_root_sync
+    unit: rockchip.service
+    unit_file: /lib/systemd/system/rockchip.service
+    script: /etc/init.d/rockchip.sh
+    dropin: /etc/systemd/system/rockchip.service.d/override.conf
+    dropin_content: |
+      [Service]
+      ExecStart=
+      ExecStart=/bin/true
+    mount_target: /
+    vendor_exec_start: /etc/init.d/rockchip.sh
+    desired_exec_start: /bin/true
+    defective_unit_markers:
+      - ExecStart=/etc/init.d/rockchip.sh
+    defective_script_markers:
+      - "#!/bin/bash -e"
+      - rk3308
+      - 'CHIPNAME="rk3208"'
+      - mount -o remount,sync /
+      - install_packages
+      - touch /usr/local/first_boot_flag
+    ordered_script_markers:
+      - mount -o remount,sync /
+      - install_packages
+      - touch /usr/local/first_boot_flag

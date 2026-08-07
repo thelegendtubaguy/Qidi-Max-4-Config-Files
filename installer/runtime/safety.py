@@ -5,7 +5,7 @@ import shutil
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from .errors import ActivePrintError, FreeSpaceError, PrinterStateError, RecoveryRequiredError
 

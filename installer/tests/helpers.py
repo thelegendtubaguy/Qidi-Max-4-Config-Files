@@ -15,8 +15,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MOONRAKER_QUERY_URL = "http://moonraker.invalid/printer/objects/query?print_stats"
 _TEMP_ROOTS: list[Path] = []
 def homing_fixture_bytes(firmware: str) -> bytes:
-    if firmware not in {"01.01.06.03", "01.01.06.04"}:
+    if firmware not in {"01.01.06.03", "01.01.06.04", "01.01.06.05"}:
         raise ValueError(f"Unsupported homing fixture firmware: {firmware}")
+    if firmware == "01.01.06.05":
+        return homing_sync_reset_fixture_bytes()
     value = (REPO_ROOT / "installer/klipper/qidi/homing.py").read_bytes()
     value = value.replace(b"G4 P100", b"G4 P200").replace(b"G4 P50", b"G4 P200")
     value = value.replace(
@@ -29,6 +31,13 @@ def homing_fixture_bytes(firmware: str) -> bytes:
             b"G4 P200SET_HOMING_MODE STEPPER=y VALUE=2",
         )
     return value
+
+
+def homing_sync_reset_fixture_bytes() -> bytes:
+    return (
+        FIXTURES_ROOT
+        / "source-patches/01.01.06.04/homing-sync-reset.py"
+    ).read_bytes()
 
 
 def temp_path(prefix: str) -> Path:
@@ -51,7 +60,6 @@ atexit.register(_cleanup_temp_roots)
 def copy_base_runtime() -> Path:
     temp_root = temp_path("installer-runtime-")
     shutil.copytree(BASE_RUNTIME_FIXTURE / "config", temp_root / "config")
-    (temp_root / "klipper/klippy/extras").mkdir(parents=True)
     shutil.copy2(BASE_RUNTIME_FIXTURE / "firmware_manifest.json", temp_root / "firmware_manifest.json")
     target = temp_root / "klipper/klippy/extras"
     target.mkdir(parents=True, exist_ok=True)

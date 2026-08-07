@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from installer.runtime.manifest import load_manifest
 from installer.runtime.naming import (
     BUNDLE_ROOT_NAME,
     INSTALL_BACKUP_LABEL_PREFIX,
@@ -49,21 +50,75 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("bundle smoke test is missing restore.sh")
     if not (bundle_root / "installer/system/qidiclient-static-gifs.tar.gz").exists():
         raise SystemExit("bundle smoke test is missing qidiclient static GIF archive")
-    if not (bundle_root / "installer/klipper/extras/tltg_pa_calibration.py").exists():
+    pa_extra_payload = bundle_root / "installer/klipper/extras/tltg_pa_calibration.py"
+    if not pa_extra_payload.exists():
         raise SystemExit("bundle smoke test is missing PA calibration Klipper extra")
-    for firmware in ("01.01.06.03", "01.01.06.04"):
-        if not (bundle_root / f"installer/stock/qidi-max4-defaults/firmwares/{firmware}/config/printer.cfg").exists():
+    snapshot_base = bundle_root / "installer/stock/qidi-max4-defaults/firmwares"
+    for firmware in ("01.01.06.03", "01.01.06.04", "01.01.06.05"):
+        snapshot_root = snapshot_base / firmware / "config"
+        printer_config = snapshot_root / "printer.cfg"
+        if not printer_config.exists():
             raise SystemExit(f"bundle smoke test is missing {firmware} stock config snapshot")
-    payload = bundle_root / "installer/klipper/qidi/homing.py"
-    if not payload.is_file() or payload.is_symlink():
-        raise SystemExit("bundle smoke test is missing production homing.py payload")
-    payload_bytes = payload.read_bytes()
-    try:
-        compile(payload_bytes, str(payload), "exec")
-    except SyntaxError as exc:
-        raise SystemExit(f"bundle homing.py payload does not compile: {exc}") from exc
-    if hashlib.sha256(payload_bytes).hexdigest() != "32a8545c440a640b67d1f88f0bbc6ed86b0302c96efda3af8a39ebf22e25fda3":
-        raise SystemExit("bundle homing.py payload hash does not match package manifest")
+        for excluded in ("MCU_ID.cfg", "box.cfg", "fluidd.cfg", "saved_variables.cfg"):
+            if (snapshot_root / excluded).exists():
+                raise SystemExit(
+                    f"bundle smoke test found excluded {firmware} stock file: {excluded}"
+                )
+
+    firmware_05_root = snapshot_base / "01.01.06.05" / "config"
+    firmware_05_printer = (firmware_05_root / "printer.cfg").read_text(encoding="utf-8")
+    for expected in (
+        "tachometer_poll_interval: 0.0005",
+        "# [smart_output_pin polar_cooler]",
+        "# [smart_output_pin beeper]",
+        "[output_pin polar_cooler]",
+    ):
+        if expected not in firmware_05_printer:
+            raise SystemExit(f"bundle .05 stock printer.cfg is missing {expected}")
+    firmware_05_qd_macro = (
+        firmware_05_root / "klipper-macros-qd/qd_macro.cfg"
+    ).read_text(encoding="utf-8")
+    for expected in ("SET_KINEMATIC_POSITION Z=150", "G1 Z1 F600"):
+        if expected not in firmware_05_qd_macro:
+            raise SystemExit(f"bundle .05 stock qd_macro.cfg is missing {expected}")
+    package_manifest = load_manifest(bundle_root / "installer/package.yaml")
+    for spec in package_manifest.install.external_files:
+        payload = bundle_root / "installer" / spec.source
+        if not payload.is_file() or payload.is_symlink():
+            raise SystemExit(
+                f"bundle smoke test is missing external payload: {spec.source}"
+            )
+        payload_bytes = payload.read_bytes()
+        try:
+            compile(payload_bytes, str(payload), "exec")
+        except SyntaxError as exc:
+            raise SystemExit(
+                f"bundle external payload does not compile: {spec.source}: {exc}"
+            ) from exc
+        if hashlib.sha256(payload_bytes).hexdigest() != spec.sha256:
+            raise SystemExit(
+                "bundle external payload hash does not match package manifest: "
+                f"{spec.source}"
+            )
+    for patch in package_manifest.install.source_patches:
+        for variant in patch.variants:
+            payload = bundle_root / "installer" / variant.source
+            if not payload.is_file() or payload.is_symlink():
+                raise SystemExit(
+                    f"bundle smoke test is missing source payload: {variant.source}"
+                )
+            payload_bytes = payload.read_bytes()
+            try:
+                compile(payload_bytes, str(payload), "exec")
+            except SyntaxError as exc:
+                raise SystemExit(
+                    f"bundle source payload does not compile: {variant.source}: {exc}"
+                ) from exc
+            if hashlib.sha256(payload_bytes).hexdigest() != variant.desired_sha256:
+                raise SystemExit(
+                    "bundle source payload hash does not match package manifest: "
+                    f"{variant.source}"
+                )
     package_version = read_package_version(bundle_root / "installer/package.yaml")
     help_output = run_command([str(bundle_root / "install.sh"), "--help"], cwd=bundle_root, env=os.environ.copy())
     if help_output.returncode != 0:
@@ -83,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         "--disable-ai-detection",
         "--keep-ai-detection",
         "--keep-system-optimizations",
+        "--reboot-host",
     ):
         if expected not in help_output.stdout:
             raise SystemExit(f"install.sh help output is missing {expected}")
@@ -96,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run_install_printer_root = prepare_printer_root(workspace / "dry-run-install-printer")
         dry_run_install_env = build_env(dry_run_install_printer_root, moonraker_url=url)
         dry_run_install = run_command(
-            [str(bundle_root / "install.sh"), "--dry-run", "--plain"],
+            [str(bundle_root / "install.sh"), "--dry-run", "--plain", "--reboot-host"],
             cwd=bundle_root,
             env=dry_run_install_env,
         )
@@ -108,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("install dry-run smoke test unexpectedly created a backup zip")
         if "Dry-run summary:" not in dry_run_install.stdout:
             raise SystemExit("install dry-run smoke test did not emit the dry-run summary")
+        if "Host reboot dry-run: would schedule a delayed reboot" not in dry_run_install.stdout:
+            raise SystemExit("install dry-run smoke test did not forward --reboot-host")
 
         plain_printer_root = prepare_printer_root(workspace / "plain-printer")
         plain_env = build_env(plain_printer_root, moonraker_url=url)
@@ -310,7 +368,6 @@ def prepare_printer_root(root: Path) -> Path:
         shutil.rmtree(root)
     root.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXTURE_ROOT / "config", root / "config")
-    (root / "klipper/klippy/extras").mkdir(parents=True)
     shutil.copy2(FIXTURE_ROOT / "firmware_manifest.json", root / "firmware_manifest.json")
     homing = REPO_ROOT / "installer/klipper/qidi/homing.py"
     target = root / "klipper/klippy/extras"
@@ -324,7 +381,6 @@ def build_env(printer_root: Path, *, moonraker_url: str) -> dict[str, str]:
     env.update(
         {
             "TLTG_OPTIMIZED_PRINTER_DATA_ROOT": str(printer_root),
-            "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_root / "klipper"),
             "TLTG_OPTIMIZED_FIRMWARE_MANIFEST": str(printer_root / "firmware_manifest.json"),
             "TLTG_OPTIMIZED_MOONRAKER_URL": moonraker_url,
             "TLTG_OPTIMIZED_KLIPPER_ROOT": str(printer_root / "klipper"),

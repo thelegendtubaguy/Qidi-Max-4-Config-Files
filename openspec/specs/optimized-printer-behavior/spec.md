@@ -2,186 +2,140 @@
 
 ## Purpose
 
-Optimized printer behavior shortens homing, probing, filament, and print transitions while preserving QIDI machine safety, slicer compatibility, and vendor-owned Box behavior.
+Optimized printer behavior shortens print transitions while preserving QIDI motion safety, slicer compatibility, hardware monitoring, and vendor-owned QIDI Box behavior.
 
 ## Requirements
 
-### Requirement: Guarded closed-loop X/Y homing optimization
-The optimized configuration and managed QIDI homing payload SHALL apply X/Y speed and timing reductions only to stock or proven prior-managed state while preserving closed-loop homing safety and a production-safe command surface.
+### Requirement: Guarded motion and calibration optimization
+Optimized configuration SHALL reduce homing, probing, mesh, and filament-transition overhead only where the selected firmware baseline or valid installer state proves the change safe.
 
-#### Scenario: Recognized X/Y speeds are optimized
-- **WHEN** supported stock X/Y `homing_speed` values are `50`, or valid prior state proves live values of `65` were installer-managed
-- **THEN** both X and Y first-strike `homing_speed` values become `100 mm/s`
-- **AND** both second-strike speeds become `55 mm/s`
-- **AND** the ledger retains original expected values for uninstall
+#### Scenario: Recognized state receives optimized behavior
+- **WHEN** supported stock or proven prior-managed motion and timing inputs are installed
+- **THEN** guarded values and firmware-scoped payloads from `installer/package.yaml` are applied
+- **AND** unrecognized live values are preserved as user-modified
+- **AND** production payloads remain syntax-valid and exclude diagnostic-only commands
 
-#### Scenario: Unowned X/Y speed is preserved
-- **WHEN** a live X/Y homing speed matches neither stock, current desired state, nor a value proven managed by prior state
-- **THEN** the target is classified as user-modified and is not overwritten
-
-#### Scenario: Controller and axis waits are reduced
-- **WHEN** X or Y homing runs
-- **THEN** existing controller command order is retained
-- **AND** homing-entry transition waits are `100 ms`
-- **AND** recovery transition waits are `50 ms`
-- **AND** pre-home dwell is `0.25 s` for X/Y and remains `1 s` for other axes
-
-#### Scenario: Closed-loop safety is retained
+#### Scenario: Closed-loop homing safety remains intact
 - **WHEN** X or Y homes
-- **THEN** QIDI's two-strike sequence, `20 mm` retract, second-strike tolerance validation, retry limit, endstop reset, controller-state ordering, and final macro backoff remain active
-- **AND** an in-tolerance second strike succeeds without another retry
-- **AND** an out-of-tolerance strike retries and exceeding the retry limit remains an error
+- **THEN** QIDI controller ordering, two-strike validation, retry/error handling, synchronization behavior for the selected firmware, and final backoff remain active
+- **AND** reduced waits and speeds do not add firmware behavior absent from that baseline
 
-#### Scenario: Production payload is valid and excludes diagnostics
-- **WHEN** the managed `homing.py` payload is built or inspected
-- **THEN** firmware `01.01.06.03` recovery scripts keep `G4 P50` and `SET_HOMING_MODE STEPPER=y VALUE=2` on separate G-code lines
-- **AND** Python source compiles and matches the desired SHA-256 declared in `installer/package.yaml`
-- **AND** temporary wall-clock logging and `TLTG_HOME_TIMING`, `TLTG_HOME_MACRO_TIMING`, and `TLTG_HOME_TIME_MARK` commands are absent
+#### Scenario: Homing and print preparation avoid redundant motion
+- **WHEN** full, per-axis, or lazy homing and print preparation run
+- **THEN** normal homing performs the requested axes, lazy homing skips requested axes already known, and Z homes required unknown X/Y first
+- **AND** temporary motion settings are restored
+- **AND** Z tilt and a fresh adaptive mesh run without redundant homing or loading a stale stock mesh
 
-### Requirement: Optimized homing, probing, mesh, and offset handling
-Optimized macros SHALL avoid redundant motion and fixed waits while preserving valid axis state, acceleration, Z-offset, and fresh-mesh behavior.
+#### Scenario: Runtime Z offset survives preparation
+- **WHEN** start G-code captures the saved runtime Z offset
+- **THEN** the offset is cleared before homing, tilt, and mesh
+- **AND** the captured value is reapplied after configuration save
+- **AND** saved fallback is used only when the session has no capture
 
-#### Scenario: G28 honors requested and lazy axes
-- **WHEN** `G28` requests full, XY, X-only, Y-only, or Z-only homing
-- **THEN** only the required axes are homed unless Z requires unknown XY
-- **AND** `G28 O ...` skips axes that are already homed
-- **AND** Z homes at a configured randomized point around bed center
-- **AND** temporary homing acceleration is restored
-- **AND** the stock pre-homing relative X/Y nudge is absent
+### Requirement: Controlled slicer start paths
+OrcaSlicer and QIDI Studio packs SHALL implement the same functional print-start branches while retaining parser-specific syntax and the ordered invariants in `openspec/contracts/gcode-paths/start-print.path.json`.
 
-#### Scenario: Print preparation avoids redundant homing
-- **WHEN** optimized print start prepares Z tilt or mesh
-- **THEN** known X/Y axes are not rehomed
-- **AND** Z-only homing is used when valid
-- **AND** the active mesh is cleared and `BED_MESH_CALIBRATE PROFILE=kamp` creates a fresh mesh rather than loading stock `default`
-- **AND** optimized Z-tilt, mesh travel, and post-mesh save waits use installer-managed values
+#### Scenario: Slicer entrypoints satisfy the path contract
+- **WHEN** either slicer pack is validated
+- **THEN** its required and forbidden commands, ordering, temperature inputs, selected tool, and parser-specific placeholders satisfy the controlled path contract
+- **AND** first-layer temperature and the selected tool are established before front-bed priming
 
-#### Scenario: Runtime Z offset is captured and reapplied
-- **WHEN** slicer start calls `M1002 R1`
-- **THEN** saved `z_offset` is captured in volatile macro state, reported, and cleared from runtime adjustment before homing, Z tilt, and mesh
-- **AND** `M1002 A1` reapplies the captured value after `SAVE_CONFIG_QD`
-- **AND** only a missing session capture falls back to saved `z_offset`
+#### Scenario: Proven retained Box filament avoids reload
+- **WHEN** Box availability, filament detection, logical mapping, synchronized physical slot, material, and vendor identity all prove retained-filament reuse
+- **THEN** vendor loading and rear purge/cleanup actions are skipped
+- **AND** common temperature waits, tilt, fresh mesh, offset, and sensor preparation still run
 
-### Requirement: Aligned slicer and start-print branches
-OrcaSlicer and QIDI Studio start/end packs SHALL remain functionally aligned while preserving parser-specific placeholders, and optimized start SHALL keep retained-filament, QIDI Box fresh-load, and external-spool paths distinct.
+#### Scenario: Fresh Box filament retains vendor ownership
+- **WHEN** the Box is enabled and retained reuse is not proven
+- **THEN** start delegates feeder, cutter, retry, runout, RFID, and vendor cleaning ownership to the Box stack
+- **AND** optimized purge cleanup and collision-safe rear scraping run before common print preparation
 
-#### Scenario: Start entrypoints follow the controlled path contract
-- **WHEN** either slicer start G-code is validated
-- **THEN** ordered commands and forbidden patterns match `openspec/contracts/gcode-paths/start-print.path.json`
-- **AND** OrcaSlicer uses `CHAMBER=[chamber_temperature]`
-- **AND** QIDI Studio uses `CHAMBER=[chamber_temperatures]`
-- **AND** both pass `PURGETEMP={nozzle_temperature_range_high[initial_tool]}` separately from first-layer nozzle temperature
-- **AND** `T[initial_tool]` executes before the front prime line
-- **AND** `SET_INPUT_SHAPER` and a post-prime retract are absent
-
-#### Scenario: Retained Box filament is reused only when proven
-- **WHEN** retained-filament reuse is selected
-- **THEN** the Box is available and enabled and filament is detected
-- **AND** requested tool mapping, retained slot, and `slot_sync` match
-- **AND** retained material and vendor IDs match current slot metadata
-- **AND** `BOX_PRINT_START`, rear extrusion/flush, scrape macro, and `CLEAR_NOZZLE` are skipped
-- **AND** chute cleanup, bed/chamber waits, Z tilt, KAMP mesh, offset application, and sensor enablement still run
-
-#### Scenario: Fresh Box filament delegates vendor motion
-- **WHEN** the Box is enabled and reuse is not eligible
-- **THEN** start calls `BOX_PRINT_START EXTRUDER=<tool> HOTENDTEMP=<purge temperature>`
-- **AND** waits for vendor motion with `M400`
-- **AND** performs optimized rear extrusion/flush and staged scrape-temperature cleanup
-- **AND** does not rehome Z between purge cleanup and rear-bed scrape
-- **AND** continues through bed/chamber waits, Z tilt, KAMP mesh, offset application, and sensor enablement
-- **AND** vendor feeder, cutter, retry, runout, and RFID ownership is not replaced
-
-#### Scenario: External-spool start avoids absent Box behavior
-- **WHEN** the Box stack is unavailable or `enable_box != 1`
-- **THEN** start invalidates retained Box state
-- **AND** does not call `BOX_PRINT_START`, rear extrusion/flush, `CLEAR_NOZZLE`, or `G1 E250`
-- **AND** wipes/scrapes without extrusion before bed/chamber waits, Z tilt, KAMP mesh, offset application, and sensor enablement
+#### Scenario: External spool avoids Box-only actions
+- **WHEN** the Box is unavailable or disabled
+- **THEN** retained Box state is invalidated and Box load or purge actions are not called
+- **AND** collision-safe non-extruding rear cleaning runs before common print preparation
 
 #### Scenario: Prime line remains first-layer aware
-- **WHEN** front-bed room exists relative to first-layer bounds
-- **THEN** the prime line is placed in front of those bounds
-- **AND** otherwise uses the fixed front-center fallback
-- **AND** first-layer nozzle temperature is established before extrusion
-- **AND** the prime extrusion remains attributed to the selected initial tool
+- **WHEN** common preparation completes
+- **THEN** the prime line uses available room ahead of first-layer bounds or a fixed safe fallback
+- **AND** nozzle-temperature Z compensation is applied from a known absolute reference after mesh and offset application
 
-#### Scenario: QIDI Studio parser restrictions are retained
-- **WHEN** QIDI Studio G-code is edited
-- **THEN** `{if}`, `{else}`, and `{endif}` remain on separate lines
-- **AND** indexed completion-air-filtration placeholders are absent
-- **AND** end G-code uses `EXHAUST_SPEED=0`
-- **AND** direct polar-cooler commands are absent unless separately approved and QIDI Studio-validated
+### Requirement: Filament and QIDI Box state lifecycle
+Optimized macros SHALL keep external-spool runout policy independent from vendor Box recovery, retain filament only when physical Box state is provable, and normalize tool mappings only at safe lifecycle boundaries.
 
-### Requirement: Filament state and runout handling
-Optimized filament handling SHALL preserve QIDI Box recovery while allowing external-spool automatic pausing to be controlled independently and retained Box filament to survive safely between prints.
+#### Scenario: External runout pause is independently switchable
+- **WHEN** automatic external-spool pause is disabled
+- **THEN** sensor events and exhausted status remain visible while automatic external pause is suppressed
+- **AND** QIDI Box runout, reload, status, and resume remain vendor-controlled
+- **AND** the setting returns enabled after Klipper restart
 
-#### Scenario: External-spool pause policy is independently switchable
-- **WHEN** `TLTG_FILAMENT_SENSOR ENABLE=0`
-- **THEN** toolhead switch events and external-spool exhausted status remain active
-- **AND** automatic external-spool pause is suppressed
-- **AND** external-spool resume may bypass the false switch
-- **AND** QIDI Box runout, auto-reload, exhausted status, and resume remain vendor-controlled and enabled
-- **AND** the setting resets enabled after Klipper restart
+#### Scenario: Retention follows the synchronized physical slot
+- **WHEN** normal end-print retention runs with Box filament loaded
+- **THEN** retained tool, slot, material, and vendor identity derive from the synchronized physical slot and current mapping
+- **AND** unload clears retained state before vendor unload while preserving caller motion and extrusion modes
 
-#### Scenario: Sensor events remain visible
-- **WHEN** toolhead runout or supported insert occurs
-- **THEN** console output identifies sensor state, source mode, and pause decision
-- **AND** disabling automatic pause does not suppress the sensor event
+#### Scenario: Start repairs only missing active mappings
+- **WHEN** print start requires active Box mappings
+- **THEN** missing or empty active mappings become identity mappings before filament preparation
+- **AND** every existing non-empty mapping is preserved
+- **AND** non-Box start remains available
 
-#### Scenario: End-print retention follows the physical slot
-- **WHEN** retention is enabled and Box filament remains loaded
-- **THEN** `OPTIMIZED_END_PRINT_FILAMENT_PREP` derives the active slot from `slot_sync`
-- **AND** reverse-maps it through `value_t0` through `value_t15`
-- **AND** stores retained tool, slot, material, and vendor state for the next guarded reuse decision
-- **AND** stale slicer `current_extruder` does not override the synced slot
+#### Scenario: Normal completion restores predictable mappings
+- **WHEN** slicer end G-code completes retention or unloading
+- **THEN** cooldown begins before existing mappings are normalized to identity
+- **AND** missing mappings are created only for active Box slots
+- **AND** normalization completes before print-end cleanup
 
-#### Scenario: Unload clears retained state and preserves caller mode
-- **WHEN** optimized unload runs
-- **THEN** retained state is cleared before vendor unload
-- **AND** chute travel uses `OPTIMIZED_MOVE_TO_TRASH`
-- **AND** retract/extrusion operations run in explicit relative mode inside saved/restored G-code state
-- **AND** end-print unload may defer standalone cleanup to staged cooldown wiping
+#### Scenario: Interrupted prints preserve operator recovery state
+- **WHEN** cancellation, error, power loss, or another interruption bypasses normal slicer end G-code
+- **THEN** current tool mappings are not normalized
+- **AND** manual mapping reset is permitted only while the printer is idle
 
-### Requirement: Cutting, cooling, motion, and helper behavior
-Optimized helpers SHALL shorten safe transitions, preserve caller state, and guard optional hardware objects while retaining stock compatibility surfaces.
+### Requirement: Safe print transitions and helpers
+Optimized cut, purge, cooldown, cleaning, calibration, and cancellation helpers SHALL preserve caller state, guard optional hardware, and avoid delayed or error-path actions that can affect a subsequent print.
 
-#### Scenario: Filament cut and flush preserve state
-- **WHEN** `OPTIMIZED_CUT_FILAMENT` or `OPTIMIZED_EXTRUSION_AND_FLUSH` runs
-- **THEN** cutter tail dwell and fixed cleanup waits are reduced
-- **AND** motion/extrusion modes and acceleration are restored to the caller
-- **AND** flush uses `OPTIMIZED_M1004` for polar-cooler handling
+#### Scenario: Cut and cleanup preserve caller state
+- **WHEN** optimized cut, purge, chute, chamber, or Box-heater helpers run
+- **THEN** motion modes, extrusion modes, and temporary acceleration are restored
+- **AND** optional Box objects are called only when available and valid
+- **AND** fixed waits are reduced without replacing required motion completion waits
 
-#### Scenario: End-print cooldown completes staged cleanup
-- **WHEN** slicer end G-code runs
-- **THEN** Z lifts `3 mm`, the toolhead moves immediately to the chute, filament prep runs, cooldown begins, and bed lowering follows the common slicer height rule
-- **AND** part cooling starts at full speed and heater/sensor shutdown occurs
-- **AND** the Box heater is disabled only when available
-- **AND** staged wiping runs after a `40 °C` hotend drop and again at `140 °C`, then moves Y forward `30 mm` before `PRINT_END`
-- **AND** OrcaSlicer may run requested exhaust cooldown while QIDI Studio passes zero
+#### Scenario: End-print performs staged cooldown safely
+- **WHEN** normal slicer end G-code runs
+- **THEN** the toolhead reaches the chute, filament preparation and heater shutdown occur, and staged cooling and wiping complete before print end
+- **AND** bed lowering follows the shared slicer rule
+- **AND** delayed fan shutdown cannot turn off a fan used by a new or paused print
+- **AND** OrcaSlicer may apply configured completion exhaust while QIDI Studio passes zero and omits unsupported indexed completion-air placeholders
 
-#### Scenario: Delayed fan shutdown cannot affect another print
-- **WHEN** a new print starts or print state becomes active/paused
-- **THEN** pending `_optimized_end_fan_cooldown_off` work cannot shut down the active print's `P3` fan
+#### Scenario: Error cancellation is motion-free
+- **WHEN** optimized error cancellation executes
+- **THEN** heaters, fans, optional Box heat, pause state, and print state are cleaned up before base cancellation
+- **AND** no parking, wiping, or other toolhead motion occurs
 
-#### Scenario: Chute and heater helpers guard runtime state
-- **WHEN** `OPTIMIZED_MOVE_TO_TRASH` runs
-- **THEN** X/Y are lazily homed, chute approach uses optimized final moves, and caller state/acceleration are restored
-- **AND** `OPTIMIZED_DISABLE_BOX_HEATER` calls the vendor command only when `box_extras` exists
-- **AND** `TLTG_SET_BOX_TEMP` validates Box index, heater existence, and maximum target before setting temperature
-- **AND** chamber wait stops the circulation fan and completes within `3 °C` of target
-
-#### Scenario: Calibration and startup helpers remain available
+#### Scenario: Operator helpers remain guarded and available
 - **WHEN** optimized macros load
-- **THEN** `SCREWS_TILT_CALCULATE`, `TLTG_PROBE_ACCURACY_CENTER`, and `TLTG_CORNER_BED_SCREW_CHECK` are available with their guarded homing/calibration sequences
-- **AND** the console reports `TLTG Optimized Configs Installed v<package_version>`
-- **AND** package version matches `installer/package.yaml`
+- **THEN** supported bed-screw, probe-accuracy, Box-temperature, mapping-reset, and startup reporting helpers are available
+- **AND** each helper validates required printer state and hardware bounds before acting
+
+### Requirement: Firmware and vendor compatibility surfaces
+Optimized configuration SHALL preserve firmware-scoped peripheral ownership, stock integration names, and fan-failure safety while applying guarded hardware optimizations.
+
+#### Scenario: Polar cooler ownership remains firmware-compatible
+- **WHEN** firmware uses the direct polar-cooler output
+- **THEN** optimized pause and resume do not change its state or recreate removed smart-pin objects
+- **AND** existing direct control remains available to approved start, cooling, end, and cancellation paths
+
+#### Scenario: Hotend fan sampling preserves protection
+- **WHEN** the supported hotend-fan baseline is installed
+- **THEN** the guarded polling interval declared by the package retains sampling margin above measured fan speed
+- **AND** fan output, RPM reporting, and zero-RPM shutdown behavior remain unchanged
+- **AND** uninstall restores the owned firmware preimage while preserving user drift
 
 #### Scenario: Stock integration surfaces remain intact
 - **WHEN** optimized configuration is installed
-- **THEN** stock-named QIDI macros remain available for Fluidd, QIDI Client, and vendor internals
-- **AND** `config/box.cfg` remains the active vendor Box stack
-- **AND** vendor Box object and command names are not redefined
-- **AND** `config/fluidd.cfg` remains unmodified
-- **AND** apparently unused stock globals remain preserved unless external use is disproven
+- **THEN** stock-named macros required by QIDI software remain available
+- **AND** the active vendor Box stack and vendor command names are not redefined
+- **AND** `config/fluidd.cfg` and unproven externally consumed stock globals remain unmodified
 
 ### Requirement: Load-cell pressure-advance calibration remains fail-closed until validated
 The optimized configuration SHALL reserve an operator-invokable load-cell pressure-advance calibration interface without enabling physical calibration or candidate reporting before Max 4 hardware validation is complete.
@@ -189,27 +143,15 @@ The optimized configuration SHALL reserve an operator-invokable load-cell pressu
 #### Scenario: Explicit calibration inputs are required
 - **WHEN** `TLTG_PA_CALIBRATE` is invoked
 - **THEN** `TEMP=<celsius>` and `NOZZLE=<0.2|0.4|0.6|0.8>` are required
-- **AND** the command does not infer temperature or nozzle diameter from slicer, QIDI screen, Moonraker, or Klipper state
+- **AND** no temperature or nozzle default is selected implicitly
 
 #### Scenario: Unvalidated calibration has no physical effects
-- **WHEN** required inputs are valid while the production calibration gate remains disabled
+- **WHEN** the required inputs are valid but hardware validation is incomplete
 - **THEN** the command reports `PA_CALIBRATION_UNVALIDATED`
 - **AND** it returns before homing, heating, movement, sensor acquisition, extrusion, pressure-advance changes, or filament-source changes
 
 #### Scenario: Candidate output is non-persistent
-- **WHEN** hardware validation eventually permits a successful calibration result
-- **THEN** the response format is `PA_VALUE=<decimal> TEMP=<celsius> NOZZLE=<mm> PERSISTED=0`
-- **AND** failure output contains no `PA_VALUE=` token
-- **AND** calibration does not call `SAVE_CONFIG`, `SAVE_VARIABLE`, persist a G-code result variable, or alter slicer configuration
+- **WHEN** future hardware validation enables candidate reporting
+- **THEN** the result is reported without changing active or persistent pressure advance
+- **AND** no slicer, saved-variable, or printer configuration is modified
 - **AND** implementation remains in `installer/klipper/tltg-optimized-macros/pa_calibration.cfg` and `installer/klipper/extras/tltg_pa_calibration.py`
-
-### Requirement: Motion-free error cancellation
-`OPTIMIZED_CANCEL_PRINT_ON_ERROR` SHALL complete shutdown and print-state cleanup before base cancellation without parking, wiping, or moving the toolhead.
-
-#### Scenario: Virtual-SD error cancellation completes cleanup first
-- **WHEN** `OPTIMIZED_CANCEL_PRINT_ON_ERROR` executes
-- **THEN** heaters and fans are shut down and the Box heater is disabled when available
-- **AND** pause state is restored
-- **AND** `G31` and `CLEAR_PAUSE` execute
-- **AND** `_KM_CANCEL_PRINT_BASE` executes after those steps
-- **AND** no park, wipe, or other toolhead motion is added

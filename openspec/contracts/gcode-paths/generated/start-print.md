@@ -17,6 +17,9 @@ Ordered invariants:
 - `OPTIMIZED_PRINT_START_HOME`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]`
 - `T[initial_tool]`
+- `G90`
+- `G1 Z10 F600`
+- `G92_ Z{10 - ((nozzle_temperature_initial_layer[initial_tool] - 130) / 14 - 5.0) / 100}`
 - `{if first_layer_print_min[1] - 10 >= print_bed_min[1]}`
 - `G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000`
 - `G1 X218 Y0 F20000`
@@ -48,6 +51,9 @@ Ordered invariants:
 - `OPTIMIZED_PRINT_START_HOME`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]`
 - `T[initial_tool]`
+- `G90`
+- `G1 Z10 F600`
+- `G92_ Z{10 - ((nozzle_temperature_initial_layer[initial_tool] - 130) / 14 - 5.0) / 100}`
 - `{if first_layer_print_min[1] - 10 >= print_bed_min[1]}`
 - `G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000`
 - `G1 X218 Y0 F20000`
@@ -69,11 +75,34 @@ Forbidden patterns:
 
 ## Branches
 
+### tool_mapping_reconciliation
+
+Condition: `all optimized starts`
+
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:217-249`
+
+Direct visible macro calls in branch slice:
+
+- `_TLTG_ENSURE_TOOL_MAPPINGS`
+- `G31`
+
+Ordered invariants:
+
+- `_TLTG_ENSURE_TOOL_MAPPINGS`
+- `SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_NOZZLE_COOLDOWN_START VARIABLE=reset_tool_mappings VALUE=0`
+- `G31`
+- `SAVE_VARIABLE VARIABLE=retained_tool_ready VALUE=0`
+
+Forbidden patterns:
+
+- `BOX_PRINT_START`
+- `_TLTG_RESET_TOOL_MAPPINGS`
+
 ### retained_filament_reuse
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:183-226`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:250-293`
 
 Direct visible macro calls in branch slice:
 
@@ -118,14 +147,14 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:227-293`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-343`
 
 Direct visible macro calls in branch slice:
 
 - `OPTIMIZED_EXTRUSION_AND_FLUSH`
 - `OPTIMIZED_MOVE_TO_TRASH`
 - `m104`
-- `M106`
+- `_OPTIMIZED_REAR_BED_SCRAPE`
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
 - `_OPTIMIZED_REPORT_BED_TEMP`
@@ -140,7 +169,7 @@ Ordered invariants:
 - `BOX_PRINT_START EXTRUDER={tool} HOTENDTEMP={purge_temp}`
 - `OPTIMIZED_EXTRUSION_AND_FLUSH PURGETEMP={purge_temp} CHAMBER={chamber_target}`
 - `TEMPERATURE_WAIT SENSOR=extruder MAXIMUM={scrape_maximum}`
-- `G1 Z-0.2 F480`
+- `_OPTIMIZED_REAR_BED_SCRAPE`
 - `OPTIMIZED_WAIT_BED S={bed_target} STATUS=wait_bed_temp`
 - `G1 X15 Y202.5 F36000`
 - `_OPTIMIZED_REPORT_BED_TEMP`
@@ -159,7 +188,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-334`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:344-384`
 
 Direct visible macro calls in branch slice:
 
@@ -193,6 +222,41 @@ Forbidden patterns:
 - `OPTIMIZED_EXTRUSION_AND_FLUSH`
 - `CLEAR_NOZZLE`
 - `G1 E250`
+
+### rear_bed_scrape_motion
+
+Condition: `fresh Box or external-spool rear-bed scrape`
+
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:166-193`
+
+Direct visible macro calls in branch slice:
+
+- `OPTIMIZED_MOVE_TO_TRASH`
+- `M106`
+
+Ordered invariants:
+
+- `OPTIMIZED_MOVE_TO_TRASH`
+- `M204 S10000`
+- `G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}`
+- `G1 X380 F{opt.rear_scrape_orient_speed_xy}`
+- `G1 X188 F{opt.rear_scrape_orient_speed_xy}`
+- `G1 Y392 F{opt.trash_final_approach_speed_xy}`
+- `G1 Z-0.2 F480`
+- `G1 X15 F200`
+- `G1 Y3`
+- `G1 X-15`
+- `G1 Y-3`
+- `G1 X15`
+- `G1 Z10`
+- `G1 Y383 F12000`
+- `SET_VELOCITY_LIMIT ACCEL={saved_accel}`
+
+Forbidden patterns:
+
+- `G1 Y395 F6000`
+- `G1 Y2`
+- `G1 Y-2`
 
 ## Macro scope
 

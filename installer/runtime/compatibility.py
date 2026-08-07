@@ -5,11 +5,12 @@ from typing import Any
 
 import yaml
 
-from .manifest import ManifestValidationError, validate_relative_path
+from .manifest import validate_relative_path
 from .models import (
     AllowedPatchTarget,
     Manifest,
     UpgradeSource,
+    UpgradeSourceExternalFile,
     UpgradeSourcePatch,
     UpgradeSources,
 )
@@ -58,6 +59,7 @@ def parse_supported_upgrade_sources(raw: Any) -> UpgradeSources:
             )
         allowed_raw = entry.get("allowed_patch_targets")
         inherited_version = entry.get("inherits")
+        inherited = None
         if inherited_version is not None:
             inherited = versions.get(inherited_version) if isinstance(inherited_version, str) else None
             if inherited is None or allowed_raw is not None:
@@ -90,10 +92,12 @@ def parse_supported_upgrade_sources(raw: Any) -> UpgradeSources:
             seen.add(item.target_tuple)
             allowed_targets.append(item)
         source_patches = _parse_source_patches(entry, version)
+        external_files = _parse_external_files(entry, version, inherited)
         versions[version] = UpgradeSource(
             version=version,
             allowed_patch_targets=tuple(allowed_targets),
             source_patches=source_patches,
+            external_files=external_files,
         )
 
     return UpgradeSources(schema_version=1, versions=versions)
@@ -139,6 +143,19 @@ def validate_manifest_compatibility(
             "Current package.version source-patch baselines must exactly match the manifest."
         )
 
+    manifest_external = {
+        (item.id, item.destination, item.sha256)
+        for item in manifest.install.external_files
+    }
+    current_external = {
+        (item.id, item.destination, item.sha256)
+        for item in current_entry.external_files
+    }
+    if manifest_external != current_external:
+        raise CompatibilityValidationError(
+            "Current package.version external-file baselines must exactly match the manifest."
+        )
+
 
 def allowed_target_tuples_for_version(
     upgrade_sources: UpgradeSources, package_version: str
@@ -158,7 +175,7 @@ def _parse_source_patches(entry: dict[str, Any], version: str) -> tuple[UpgradeS
     result: list[UpgradeSourcePatch] = []
     seen_ids: set[str] = set()
     seen_destinations: set[str] = set()
-    seen_variants: set[tuple[str, str]] = set()
+    seen_variants: set[tuple[str, str, str]] = set()
     for item in raw:
         if not isinstance(item, dict):
             raise CompatibilityValidationError(f"source_patches entries for {version} must be mappings.")
@@ -171,17 +188,69 @@ def _parse_source_patches(entry: dict[str, Any], version: str) -> tuple[UpgradeS
         firmware = _require_str(item, "firmware")
         original_sha = _require_sha256(item, "original_sha256")
         desired_sha = _require_sha256(item, "desired_sha256")
-        key = (patch_id, firmware)
+        key = (patch_id, firmware, original_sha)
         if patch_id in seen_ids and destination not in seen_destinations:
             raise CompatibilityValidationError("Source-patch IDs must use one destination.")
         if destination in seen_destinations and patch_id not in seen_ids:
             raise CompatibilityValidationError("Source-patch destinations must use one ID.")
         if key in seen_variants:
-            raise CompatibilityValidationError("Duplicate source-patch firmware baseline.")
+            raise CompatibilityValidationError(
+                "Duplicate source-patch firmware stock baseline."
+            )
         seen_ids.add(patch_id)
         seen_destinations.add(destination)
         seen_variants.add(key)
         result.append(UpgradeSourcePatch(patch_id, destination, firmware, original_sha, desired_sha))
+    return tuple(result)
+
+
+def _parse_external_files(
+    entry: dict[str, Any],
+    version: str,
+    inherited: UpgradeSource | None,
+) -> tuple[UpgradeSourceExternalFile, ...]:
+    raw = entry.get("external_files")
+    if raw is None:
+        return inherited.external_files if inherited is not None else ()
+    if not isinstance(raw, list):
+        raise CompatibilityValidationError(
+            f"external_files for {version} must be a list."
+        )
+    result: list[UpgradeSourceExternalFile] = []
+    destinations_by_id: dict[str, str] = {}
+    ids_by_destination: dict[str, str] = {}
+    seen: set[tuple[str, str, str]] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise CompatibilityValidationError(
+                f"external_files entries for {version} must be mappings."
+            )
+        file_id = _require_str(item, "id")
+        destination = validate_relative_path(
+            _require_str(item, "destination"), allowed_roots=("klippy",)
+        )
+        if not destination.startswith("klippy/extras/"):
+            raise CompatibilityValidationError(
+                "External-file destinations must stay under klippy/extras/."
+            )
+        sha256 = _require_sha256(item, "sha256")
+        key = (file_id, destination, sha256)
+        if key in seen:
+            raise CompatibilityValidationError(
+                f"Duplicate external-file baseline for {version}: {file_id}"
+            )
+        if file_id in destinations_by_id and destinations_by_id[file_id] != destination:
+            raise CompatibilityValidationError(
+                "External-file IDs must use one destination."
+            )
+        if destination in ids_by_destination and ids_by_destination[destination] != file_id:
+            raise CompatibilityValidationError(
+                "External-file destinations must use one ID."
+            )
+        destinations_by_id[file_id] = destination
+        ids_by_destination[destination] = file_id
+        seen.add(key)
+        result.append(UpgradeSourceExternalFile(file_id, destination, sha256))
     return tuple(result)
 
 

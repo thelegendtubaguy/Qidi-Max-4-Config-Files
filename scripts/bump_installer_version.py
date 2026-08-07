@@ -136,6 +136,17 @@ def _render_upgrade_source_block(version: str, manifest: Manifest) -> str:
         f'  "{version}":',
         f'    inherits: "{manifest.package.version}"',
     ]
+    if manifest.install.external_files:
+        lines.append("")
+        lines.append("    external_files:")
+        for spec in manifest.install.external_files:
+            lines.extend(
+                [
+                    f'      - id: "{spec.id}"',
+                    f'        destination: "{spec.destination}"',
+                    f'        sha256: "{spec.sha256}"',
+                ]
+            )
     if manifest.install.source_patches:
         lines.append("")
         lines.append("    source_patches:")

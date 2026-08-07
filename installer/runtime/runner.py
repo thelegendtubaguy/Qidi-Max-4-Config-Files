@@ -7,6 +7,7 @@ import urllib.request
 from . import external_files, klipper_cfg, messages, patches
 from .auto_update import (
     LOCK_HELD_ENV,
+    auto_update_enrolled,
     maybe_prompt_enable_auto_updates,
     maybe_repair_configured_auto_updates,
 )
@@ -25,9 +26,13 @@ from .backup import (
 )
 from .ensure_lines import ensure_line_after
 from .compatibility import CompatibilityValidationError, load_supported_upgrade_sources
-from .errors import OperationCancelled, PreviousPackageValidationError, UnsupportedFirmwareError
+from .errors import PreviousPackageValidationError, UnsupportedFirmwareError
 from .firmware import detect_firmware_version
-from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
+from .host_reboot import arm_auto_update_reboot_followup
+from .interaction import (
+    maybe_restart_klipper,
+    maybe_restart_pending_service_if_idle,
+)
 from .legacy_manual_install import maybe_reset_legacy_manual_install
 from .fs_atomic import atomic_write_text
 from .manifest import active_patch_entries
@@ -113,6 +118,20 @@ def run_install(
     else:
         reporter.debug(event="install.prior_state.missing", state_path=state_path)
 
+    upgrade_sources = None
+    if prior_state is not None:
+        try:
+            upgrade_sources = load_supported_upgrade_sources(
+                paths.installer_root / "supported_upgrade_sources.yaml"
+            )
+        except CompatibilityValidationError as exc:
+            raise PreviousPackageValidationError() from exc
+        external_files.validate_state_provenance(
+            state=prior_state,
+            specs=manifest.install.external_files,
+            upgrade_sources=upgrade_sources,
+        )
+
     reporter.status(messages.PERFORMING_PREFLIGHT_CHECKS)
     run_install_environment_preflight(
         paths=paths,
@@ -121,6 +140,9 @@ def run_install(
         urlopen=urlopen,
         disk_usage=disk_usage,
         prior_state=prior_state,
+        allow_matching_untracked_external=(
+            env.get(LOCK_HELD_ENV) == "1" and auto_update_enrolled(paths)
+        ),
     )
     maybe_reset_legacy_manual_install(
         paths=paths,
@@ -140,32 +162,17 @@ def run_install(
         prior_state=prior_state,
     )
     if prior_state is not None:
-        try:
-            upgrade_sources = load_supported_upgrade_sources(
-                paths.installer_root / "supported_upgrade_sources.yaml"
-            )
-            validate_source_state(
-                prior_state,
-                manifest.install.source_patches,
-                upgrade_sources=upgrade_sources,
-                expected_firmware=detected_firmware,
-            )
-        except CompatibilityValidationError as exc:
-            raise PreviousPackageValidationError() from exc
+        assert upgrade_sources is not None
+        validate_source_state(
+            prior_state,
+            manifest.install.source_patches,
+            upgrade_sources=upgrade_sources,
+            expected_firmware=detected_firmware,
+        )
     source_results = tuple(
         classify_install_source_patch(paths=paths, patch=patch, firmware=detected_firmware, prior_state=prior_state)
         for patch in manifest.install.source_patches
     )
-
-    if not dry_run and not confirm_yes(
-        reporter=reporter,
-        input_stream=input_stream,
-        question=messages.INSTALL_CONFIRMATION_PROMPT,
-        instruction=messages.INSTALL_CONFIRMATION_INSTRUCTION,
-        cancel_message=messages.INSTALL_CANCELLED,
-    ):
-        reporter.debug(event="install.cancelled", dry_run=False)
-        raise OperationCancelled(messages.INSTALL_CANCELLED)
 
     reporter.status(messages.CREATING_BACKUP)
     started_at = utc_now()
@@ -193,6 +200,15 @@ def run_install(
             external_files=tuple(
                 (patch.id, patch.destination, paths.managed_klipper_root / patch.destination)
                 for patch in manifest.install.source_patches
+            ) + tuple(
+                (
+                    record.id,
+                    record.destination,
+                    paths.managed_klipper_root / record.destination,
+                )
+                for record in (
+                    prior_state.external_files if prior_state is not None else ()
+                )
             ),
             external_firmware=detected_firmware,
         )
@@ -262,6 +278,7 @@ def run_install(
         environ=env,
         system_options=system_options,
         source_results=source_results,
+        run=run,
     )
 
 
@@ -336,6 +353,7 @@ def _execute_install(
     environ: dict[str, str],
     system_options: SystemOptimizationCliOptions,
     source_results=(),
+    run=subprocess.run,
 ) -> InstallResult:
     state_path = paths.printer_data_root / manifest.state_file
     journal = RollbackJournal(
@@ -353,7 +371,7 @@ def _execute_install(
         for result in source_results
         if result.classification != "noop_desired"
     )
-    external_changes = _changed_external_specs(
+    external_changes = external_files.changed_specs(
         specs=manifest.install.external_files,
         prior_state=prior_state,
     )
@@ -554,6 +572,7 @@ def _execute_install(
             cli_options=system_options,
             environ=environ,
             auto_update_child=environ.get(LOCK_HELD_ENV) == "1",
+            run=run,
         )
     except Exception as exc:
         reporter.debug(
@@ -594,7 +613,7 @@ def _execute_install(
             urlopen=urlopen,
         )
     if paths.restart_marker_path.exists():
-        maybe_restart_pending_service(
+        maybe_restart_pending_service_if_idle(
             paths=paths,
             allowed_entries=_managed_klipper_entries(manifest),
             reporter=reporter,
@@ -618,6 +637,13 @@ def _execute_install(
             [item for item in result.patch_results if item.classification == patches.USER_MODIFIED]
         ),
     )
+    if environ.get(LOCK_HELD_ENV) == "1":
+        arm_auto_update_reboot_followup(
+            paths,
+            reporter=reporter,
+            environ=environ,
+            run=run,
+        )
     return result
 
 
@@ -717,18 +743,6 @@ def _collect_install_include_line_intents(
         )
     return tuple(intents)
 
-
-
-def _changed_external_specs(*, specs, prior_state: InstalledState | None):
-    prior = {
-        item.id: item for item in prior_state.external_files
-    } if prior_state is not None else {}
-    return tuple(
-        spec
-        for spec in specs
-        if spec.id not in prior
-        or prior[spec.id].installed_sha256 != spec.sha256
-    )
 
 
 def _managed_klipper_entries(manifest: Manifest) -> dict[str, str]:

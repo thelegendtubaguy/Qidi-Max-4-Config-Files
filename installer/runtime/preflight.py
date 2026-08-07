@@ -19,7 +19,6 @@ from .path_safety import (
 from .models import (
     InstalledState,
     Manifest,
-    PatchLedgerEntry,
     PatchTargetIssue,
     PreflightReport,
     RuntimePaths,
@@ -28,33 +27,6 @@ from .models import (
 DiskUsageFn = Callable[[Path], object]
 UrlOpenFn = Callable[..., object]
 
-
-
-def run_install_preflight(
-    *,
-    paths: RuntimePaths,
-    manifest: Manifest,
-    reporter=None,
-    disk_usage: DiskUsageFn = shutil.disk_usage,
-    urlopen: UrlOpenFn = urllib.request.urlopen,
-    detected_firmware: str | None = None,
-    prior_state: InstalledState | None = None,
-) -> None:
-    run_install_environment_preflight(
-        paths=paths,
-        manifest=manifest,
-        reporter=reporter,
-        disk_usage=disk_usage,
-        urlopen=urlopen,
-        prior_state=prior_state,
-    )
-    run_install_config_preflight(
-        paths=paths,
-        manifest=manifest,
-        reporter=reporter,
-        detected_firmware=detected_firmware,
-        prior_state=prior_state,
-    )
 
 
 
@@ -66,6 +38,7 @@ def run_install_environment_preflight(
     disk_usage: DiskUsageFn = shutil.disk_usage,
     urlopen: UrlOpenFn = urllib.request.urlopen,
     prior_state: InstalledState | None = None,
+    allow_matching_untracked_external: bool = False,
 ) -> None:
     ensure_install_paths_safe(paths=paths, manifest=manifest)
     printer_state = safety.ensure_printer_idle(paths.moonraker_url, urlopen=urlopen)
@@ -77,6 +50,7 @@ def run_install_environment_preflight(
         paths=paths,
         specs=manifest.install.external_files,
         prior_state=prior_state,
+        allow_matching_untracked=allow_matching_untracked_external,
     )
     required_bytes = estimate_install_free_bytes(paths=paths, manifest=manifest)
     free_bytes = safety.ensure_sufficient_free_space(
@@ -289,7 +263,10 @@ def estimate_install_free_bytes(*, paths: RuntimePaths, manifest: Manifest) -> i
         for patch in (*manifest.patches.set_options, *manifest.patches.delete_sections)
     )
     source_writes = sum(
-        safety.file_size(paths.installer_root / patch.source)
+        max(
+            safety.file_size(paths.installer_root / variant.source)
+            for variant in patch.variants
+        )
         for patch in manifest.install.source_patches
     )
     state_write = 8 * 1024 + sum(safety.file_size(path) for path in external_paths)

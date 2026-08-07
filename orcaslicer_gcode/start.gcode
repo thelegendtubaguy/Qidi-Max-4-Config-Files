@@ -26,8 +26,11 @@ M140 S[bed_temperature_initial_layer_single]
 M141 S[chamber_temperature]
 ; Use absolute coordinates for the front prime line.
 G90
+; Move to a known Z reference before applying nozzle-temperature compensation.
+G1 Z10 F600
+; Apply QIDI's nozzle-temperature compensation from the first-layer target.
+G92_ Z{10 - ((nozzle_temperature_initial_layer[initial_tool] - 130) / 14 - 5.0) / 100}
 ; Move to the adaptive front prime start point when the first layer leaves room.
-G1 Z5 F1200
 {if first_layer_print_min[1] - 10 >= print_bed_min[1]}
 {if first_layer_print_min[0]+45 <= print_bed_max[0]}
 G1 X{first_layer_print_min[0]+45} Y{first_layer_print_min[1]-10} F20000

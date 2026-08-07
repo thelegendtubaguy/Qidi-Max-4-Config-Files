@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import urllib.request
 
 from . import external_files, klipper_cfg, messages, patches
-from .auto_update import AutoUpdateError, auto_updates_configured, disable_auto_updates
+from .auto_update import (
+    AutoUpdateError,
+    auto_update_enrolled,
+    auto_updates_configured,
+    disable_auto_updates,
+)
 from .backup import (
     build_uninstall_backup_label,
     create_config_backup,
@@ -16,7 +22,11 @@ from .compatibility import CompatibilityValidationError, allowed_target_tuples_f
 from .ensure_lines import has_active_line, remove_active_line
 from .errors import InstalledPackageValidationError, OperationCancelled
 from .firmware import detect_firmware_version_best_effort
-from .interaction import confirm_yes, maybe_restart_klipper, maybe_restart_pending_service
+from .interaction import (
+    confirm_yes,
+    maybe_restart_klipper,
+    maybe_restart_pending_service_if_idle,
+)
 from .fs_atomic import atomic_write_text
 from .mirror import detect_uninstall_managed_tree_drift, remove_tree
 from .path_safety import ensure_uninstall_paths_safe
@@ -56,6 +66,7 @@ def run_uninstall(
     disk_usage=shutil.disk_usage,
     environ: dict[str, str] | None = None,
     system_options: SystemOptimizationCliOptions | None = None,
+    run=subprocess.run,
 ) -> UninstallResult:
     env = {} if environ is None else environ
     system_options = system_options or SystemOptimizationCliOptions()
@@ -121,6 +132,12 @@ def run_uninstall(
         reporter.debug(event="uninstall.ledger.missing", state_path=state_path)
 
     if not any(non_patch_markers.values()) and not any(patch_markers.values()):
+        if not dry_run:
+            _disable_enrolled_auto_updates(
+                paths=paths,
+                reporter=reporter,
+                input_stream=input_stream,
+            )
         reporter.emit_nothing_to_uninstall()
         reporter.debug(event="uninstall.complete", action="nothing-to-uninstall")
         return UninstallResult(
@@ -134,6 +151,11 @@ def run_uninstall(
         raise InstalledPackageValidationError()
 
     assert state is not None
+    external_files.validate_state_provenance(
+        state=state,
+        specs=manifest.install.external_files,
+        upgrade_sources=compatibility,
+    )
     validate_source_state(
         state,
         manifest.install.source_patches,
@@ -208,6 +230,13 @@ def run_uninstall(
                     paths.managed_klipper_root / entry.destination,
                 )
                 for entry in state.source_patches
+            ) + tuple(
+                (
+                    record.id,
+                    record.destination,
+                    paths.managed_klipper_root / record.destination,
+                )
+                for record in state.external_files
             ),
             external_firmware=state.runtime_firmware,
         )
@@ -267,6 +296,7 @@ def run_uninstall(
         urlopen=urlopen,
         restore_system=restore_system,
         environ=env,
+        run=run,
     )
 
 
@@ -325,6 +355,7 @@ def _execute_uninstall(
     urlopen,
     restore_system: bool,
     environ: dict[str, str],
+    run=subprocess.run,
 ) -> UninstallResult:
     managed_tree_root = paths.printer_data_root / state.managed_tree.root
     include_line_path = paths.printer_data_root / include_line.file
@@ -449,10 +480,12 @@ def _execute_uninstall(
         if restore_system:
             restore_system_optimizations(
                 paths=paths,
+                manifest=manifest,
                 state=state,
                 reporter=reporter,
                 input_stream=input_stream,
                 environ=environ,
+                run=run,
             )
 
         if state_path.exists():
@@ -484,18 +517,13 @@ def _execute_uninstall(
         patch_results=result.patch_results,
         managed_tree_drift=result.managed_tree_drift,
     )
-    if auto_updates_configured():
-        try:
-            disable_auto_updates(
-                paths=paths,
-                reporter=reporter,
-                input_stream=input_stream,
-                require_sudo=True,
-            )
-        except AutoUpdateError as exc:
-            reporter.line(f"{messages.AUTO_UPDATE_DISABLE_FAILED} {exc.message}")
+    _disable_enrolled_auto_updates(
+        paths=paths,
+        reporter=reporter,
+        input_stream=input_stream,
+    )
     if paths.restart_marker_path.exists():
-        maybe_restart_pending_service(
+        maybe_restart_pending_service_if_idle(
             paths=paths,
             allowed_entries=_managed_klipper_entries(manifest),
             reporter=reporter,
@@ -541,6 +569,22 @@ def detect_patch_markers(*, paths: RuntimePaths, state: InstalledState) -> dict[
             continue
         markers[entry.id] = current == entry.desired
     return markers
+
+
+
+def _disable_enrolled_auto_updates(*, paths: RuntimePaths, reporter, input_stream) -> None:
+    auto_update_units_configured = auto_updates_configured()
+    if not auto_update_units_configured and not auto_update_enrolled(paths):
+        return
+    try:
+        disable_auto_updates(
+            paths=paths,
+            reporter=reporter,
+            input_stream=input_stream,
+            require_sudo=auto_update_units_configured,
+        )
+    except AutoUpdateError as exc:
+        reporter.line(f"{messages.AUTO_UPDATE_DISABLE_FAILED} {exc.message}")
 
 
 
@@ -635,7 +679,14 @@ def _uninstall_counters_template(state: InstalledState) -> dict[str, list[int]]:
 def _emit_uninstall_dry_run_counters(reporter, state: InstalledState) -> None:
     counters = _uninstall_counters_template(state)
     counters["managed_tree_drift"][0] = counters["managed_tree_drift"][1]
-    for name in ("patches", "include_removal", "managed_tree_removal", "postflight", "state_remove"):
+    for name in (
+        "patches",
+        "include_removal",
+        "external_files",
+        "managed_tree_removal",
+        "postflight",
+        "state_remove",
+    ):
         counters[name][0] = counters[name][1]
         reporter.emit_uninstall_counters(**_freeze_counters(counters))
 

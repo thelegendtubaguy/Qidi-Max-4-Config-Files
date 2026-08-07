@@ -27,6 +27,7 @@ ALLOWED_EXTERNAL_COMMANDS = {
     "G4",
     "G90",
     "G92",
+    "G92_",
     "M82",
     "M83",
     "M1002",

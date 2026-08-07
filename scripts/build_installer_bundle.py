@@ -19,6 +19,8 @@ from installer.runtime.compatibility import load_supported_upgrade_sources, vali
 from installer.runtime.manifest import load_manifest
 from installer.runtime.naming import BUNDLE_NAME_PREFIX, BUNDLE_ROOT_NAME
 ALLOWED_FILES = [
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "installer/package.yaml",
     "installer/supported_upgrade_sources.yaml",
     "installer/release/install.sh",
@@ -26,6 +28,7 @@ ALLOWED_FILES = [
     "installer/release/auto-update.sh",
 ]
 ALLOWED_DIRECTORIES = [
+    "LICENSES",
     "installer/runtime",
     "installer/klipper/extras",
     "installer/klipper/tltg-optimized-macros",
@@ -111,17 +114,33 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def validate_source_payloads(manifest) -> None:
-    for patch in manifest.install.source_patches:
-        payload = REPO_ROOT / "installer" / patch.source
+    for spec in manifest.install.external_files:
+        payload = REPO_ROOT / "installer" / spec.source
         if payload.is_symlink() or not payload.is_file():
-            raise ValueError(f"Source patch payload is not a regular file: {payload}")
+            raise ValueError(
+                f"External-file payload is not a regular file: {payload}"
+            )
         value = payload.read_bytes()
         compile(value, str(payload), "exec")
-        digest = hashlib.sha256(value).hexdigest()
+        if hashlib.sha256(value).hexdigest() != spec.sha256:
+            raise ValueError(
+                f"External-file payload hash does not match {spec.id}"
+            )
+    for patch in manifest.install.source_patches:
         for variant in patch.variants:
+            payload = REPO_ROOT / "installer" / variant.source
+            if payload.is_symlink() or not payload.is_file():
+                raise ValueError(
+                    f"Source patch payload is not a regular file: {payload}"
+                )
+            value = payload.read_bytes()
+            compile(value, str(payload), "exec")
+            digest = hashlib.sha256(value).hexdigest()
             if digest != variant.desired_sha256:
                 raise ValueError(
-                    f"Source patch payload hash does not match {patch.id} for {variant.firmware}"
+                    "Source patch payload hash does not match "
+                    f"{patch.id} for {variant.firmware} stock "
+                    f"{variant.expected_sha256}"
                 )
 
 

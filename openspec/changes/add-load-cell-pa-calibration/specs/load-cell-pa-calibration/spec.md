@@ -299,6 +299,13 @@ The installer SHALL manage the PA calibration Python extra as a guarded external
 - **THEN** the installer requires or performs a process-level Klipper restart before claiming that the new module code is active
 - **AND** a Moonraker `/printer/restart` response alone is not treated as proof that the imported Python module was reloaded
 
+#### Scenario: Historical external-file ownership is version-proven
+- **WHEN** install or uninstall loads a prior state ledger containing the managed PA Python extra
+- **THEN** the recorded destination and installed hash must match an external-file baseline enumerated for that package version
+- **AND** install and uninstall backups capture the exact state-owned payload bytes and mode
+- **AND** restore requires those archived bytes to match the recorded version-proven hash
+- **AND** unrecognized hashes fail before backup or live mutation
+
 #### Scenario: Destination collision fails safely
 - **WHEN** an untracked or drifted file exists at the Python extra destination
 - **THEN** installation stops before overwriting the file

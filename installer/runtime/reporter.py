@@ -732,21 +732,6 @@ def _split_context_line(line: str) -> tuple[str, str]:
 
 
 
-def format_counter_line(label: str, counters: dict[str, tuple[int, int]]) -> str:
-    return (
-        f"{label}: "
-        + ", ".join(
-            format_counter(name, value)
-            for name, value in counters.items()
-        )
-    )
-
-
-
-def format_counter(label: str, value: tuple[int, int]) -> str:
-    return f"{label} {value[0]}/{value[1]}"
-
-
 
 def format_debug_line(event: str, fields: dict[str, object]) -> str:
     parts = [f"debug | event={event}"]

@@ -6,7 +6,13 @@ from pathlib import Path
 from .errors import ExternalFileError
 from .fs_atomic import atomic_delete, atomic_write_bytes
 from .mirror import sha256_bytes, sha256_file
-from .models import ExternalFileState, InstalledState, ManagedExternalFileSpec, RuntimePaths
+from .models import (
+    ExternalFileState,
+    InstalledState,
+    ManagedExternalFileSpec,
+    RuntimePaths,
+    UpgradeSources,
+)
 
 
 def source_path(paths: RuntimePaths, spec: ManagedExternalFileSpec) -> Path:
@@ -18,7 +24,11 @@ def destination_path(paths: RuntimePaths, destination: str) -> Path:
 
 
 def validate_install(
-    *, paths: RuntimePaths, specs: tuple[ManagedExternalFileSpec, ...], prior_state: InstalledState | None
+    *,
+    paths: RuntimePaths,
+    specs: tuple[ManagedExternalFileSpec, ...],
+    prior_state: InstalledState | None,
+    allow_matching_untracked: bool = False,
 ) -> None:
     prior = {item.id: item for item in prior_state.external_files} if prior_state else {}
     if prior and set(prior) != {item.id for item in specs}:
@@ -32,8 +42,11 @@ def validate_install(
         target = destination_path(paths, spec.destination)
         previous = prior.get(spec.id)
         if previous is None:
-            if target.exists() or target.is_symlink():
+            if target.is_symlink() or (target.exists() and not target.is_file()):
                 raise ExternalFileError(f"Untracked external file collision: {target}")
+            if target.exists():
+                if not allow_matching_untracked or sha256_file(target) != spec.sha256:
+                    raise ExternalFileError(f"Untracked external file collision: {target}")
             continue
         if previous.destination != spec.destination:
             raise ExternalFileError(f"External file destination changed: {spec.id}")
@@ -43,14 +56,53 @@ def validate_install(
             raise ExternalFileError(f"Managed external file drift detected: {target}")
 
 
+def validate_state_provenance(
+    *,
+    state: InstalledState,
+    specs: tuple[ManagedExternalFileSpec, ...],
+    upgrade_sources: UpgradeSources,
+) -> None:
+    source = upgrade_sources.versions.get(state.package_version)
+    if source is None:
+        raise ExternalFileError(
+            "External-file ledger package version is not an approved upgrade source."
+        )
+    allowed = {
+        (item.id, item.destination, item.sha256)
+        for item in source.external_files
+    }
+    current = {spec.id: spec for spec in specs}
+    for record in state.external_files:
+        spec = current.get(record.id)
+        key = (record.id, record.destination, record.installed_sha256)
+        if (
+            spec is None
+            or record.destination != spec.destination
+            or key not in allowed
+        ):
+            raise ExternalFileError(
+                "External-file ledger does not match its stored package baseline."
+            )
+
+
+def changed_specs(
+    *,
+    specs: tuple[ManagedExternalFileSpec, ...],
+    prior_state: InstalledState | None,
+) -> tuple[ManagedExternalFileSpec, ...]:
+    prior = {item.id: item for item in prior_state.external_files} if prior_state else {}
+    return tuple(
+        spec
+        for spec in specs
+        if spec.id not in prior
+        or prior[spec.id].installed_sha256 != spec.sha256
+    )
+
+
 def install_requires_process_restart(
     *, specs: tuple[ManagedExternalFileSpec, ...], prior_state: InstalledState | None
 ) -> bool:
-    prior = {item.id: item for item in prior_state.external_files} if prior_state else {}
-    return any(
-        spec.id not in prior or prior[spec.id].installed_sha256 != spec.sha256
-        for spec in specs
-    )
+    return bool(changed_specs(specs=specs, prior_state=prior_state))
 
 
 def planned_state(

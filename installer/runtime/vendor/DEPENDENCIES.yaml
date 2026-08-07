@@ -14,31 +14,7 @@ dependencies:
     license: MIT
     sha256: "6049d5e6ec054bf2779ab3358186963bac2ea89175919d699e378b99738c2a90"
     notes:
-      - "Vendored for optional live TUI rendering in installer/runtime/reporter.py."
-  - name: markdown-it-py
-    version: "3.0.0"
-    source_url: "https://github.com/executablebooks/markdown-it-py/tree/v3.0.0"
-    source_artifact: "https://files.pythonhosted.org/packages/42/d7/1ec15b46af6af88f19b8e5ffea08fa375d433c998b8a7639e76935c14f1f/markdown_it_py-3.0.0-py3-none-any.whl"
-    license: MIT
-    sha256: "355216845c60bd96232cd8d8c40e8f9765cc86f46880e43a8fd22dc1a1a8cab1"
-    notes:
-      - "Vendored rich runtime dependency."
-  - name: mdurl
-    version: "0.1.2"
-    source_url: "https://github.com/executablebooks/mdurl/tree/v0.1.2"
-    source_artifact: "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl"
-    license: MIT
-    sha256: "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
-    notes:
-      - "Vendored markdown-it-py runtime dependency."
-  - name: Pygments
-    version: "2.19.2"
-    source_url: "https://github.com/pygments/pygments/tree/2.19.2"
-    source_artifact: "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl"
-    license: BSD-2-Clause
-    sha256: "86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b"
-    notes:
-      - "Vendored rich runtime dependency."
+      - "Minimal subset vendored for installer/runtime/reporter.py; Markdown, syntax highlighting, rich tracebacks, logging integration, and the package demo are omitted."
   - name: typing_extensions
     version: "4.12.2"
     source_url: "https://github.com/python/typing_extensions/tree/4.12.2"

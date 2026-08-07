@@ -32,6 +32,7 @@ from .models import (
     SystemOptimizationsSpec,
     SystemQidiClientStaticGifsSpec,
     SystemMoonrakerMetadata3mfSpec,
+    SystemRockchipRootSyncSpec,
     SystemServicesSpec,
 )
 
@@ -317,22 +318,48 @@ def _parse_source_patches(install_raw: dict[str, Any], firmware: FirmwareSpec) -
         variants = tuple(
             SourcePatchVariantSpec(
                 firmware=_require_str(variant, "firmware"),
+                source=_validate_relative_path(
+                    variant.get("source", source), allowed_roots=("klipper",)
+                ),
                 expected_sha256=_require_sha256(variant, "expected_sha256"),
                 desired_sha256=_require_sha256(variant, "desired_sha256"),
             )
             for variant in _require_list_of_mapping(item, "variants")
         )
-        if {variant.firmware for variant in variants} != set(firmware.supported) or len(variants) != len(firmware.supported):
-            raise ManifestValidationError(f"Source patch {patch_id} must define exactly one variant per supported firmware.")
+        covered_firmwares = {variant.firmware for variant in variants}
+        if covered_firmwares != set(firmware.supported):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} must define at least one variant per supported firmware."
+            )
+        expected_keys = {
+            (variant.firmware, variant.expected_sha256) for variant in variants
+        }
+        desired_keys = {
+            (variant.firmware, variant.desired_sha256) for variant in variants
+        }
+        if len(expected_keys) != len(variants):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} has duplicate firmware stock hashes."
+            )
+        if len(desired_keys) != len(variants):
+            raise ManifestValidationError(
+                f"Source patch {patch_id} has duplicate firmware desired hashes."
+            )
         patches.append(SourcePatchSpec(id=patch_id, source=source, destination=destination, variants=variants))
     return tuple(patches)
 
 
-def select_source_patch_variant(patch: SourcePatchSpec, firmware_version: str) -> SourcePatchVariantSpec:
-    matches = [variant for variant in patch.variants if variant.firmware == firmware_version]
-    if len(matches) != 1:
-        raise ManifestValidationError(f"Source patch {patch.id} does not support firmware {firmware_version}.")
-    return matches[0]
+def source_patch_variants_for_firmware(
+    patch: SourcePatchSpec, firmware_version: str
+) -> tuple[SourcePatchVariantSpec, ...]:
+    matches = tuple(
+        variant for variant in patch.variants if variant.firmware == firmware_version
+    )
+    if not matches:
+        raise ManifestValidationError(
+            f"Source patch {patch.id} does not support firmware {firmware_version}."
+        )
+    return matches
 
 
 def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec | None:
@@ -347,6 +374,7 @@ def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec 
     services_raw = _require_mapping(system_raw, "services")
     gifs_raw = _require_mapping(system_raw, "qidiclient_static_gifs")
     moonraker_metadata_raw = _require_mapping(system_raw, "moonraker_metadata_3mf")
+    rockchip_raw = _require_mapping(system_raw, "rockchip_root_sync")
     optional_raw = services_raw.get("optional_disable", [])
     if not isinstance(optional_raw, list):
         raise ManifestValidationError("Expected list at optional_disable.")
@@ -390,6 +418,44 @@ def _parse_system_optimizations(raw: dict[str, Any]) -> SystemOptimizationsSpec 
             file=_validate_absolute_path(_require_str(moonraker_metadata_raw, "file")),
             restart_service=_require_str(moonraker_metadata_raw, "restart_service"),
         ),
+        rockchip_root_sync=_parse_rockchip_root_sync(rockchip_raw),
+    )
+
+
+def _parse_rockchip_root_sync(raw: dict[str, Any]) -> SystemRockchipRootSyncSpec:
+    operation_id = _require_str(raw, "id")
+    if operation_id != "rockchip_root_sync":
+        raise ManifestValidationError("system_optimizations.rockchip_root_sync.id must be rockchip_root_sync.")
+    unit = _require_str(raw, "unit")
+    if unit != "rockchip.service":
+        raise ManifestValidationError("Rockchip operation unit must be rockchip.service.")
+    mount_target = _validate_absolute_path(_require_str(raw, "mount_target"))
+    if mount_target != "/":
+        raise ManifestValidationError("Rockchip operation mount_target must be /.")
+    unit_markers = _require_unique_str_list(raw, "defective_unit_markers", non_empty=True)
+    script_markers = _require_unique_str_list(raw, "defective_script_markers", non_empty=True)
+    ordered_markers = _require_unique_str_list(raw, "ordered_script_markers", non_empty=True)
+    desired_exec_start = _validate_absolute_path(_require_str(raw, "desired_exec_start"))
+    vendor_exec_start = _validate_absolute_path(_require_str(raw, "vendor_exec_start"))
+    dropin_content = _require_str(raw, "dropin_content")
+    expected_dropin = f"[Service]\nExecStart=\nExecStart={desired_exec_start}\n"
+    if dropin_content != expected_dropin:
+        raise ManifestValidationError("Rockchip drop-in content must contain only the declared ExecStart reset and desired command.")
+    if any(marker not in script_markers for marker in ordered_markers):
+        raise ManifestValidationError("Rockchip ordered_script_markers must also appear in defective_script_markers.")
+    return SystemRockchipRootSyncSpec(
+        id=operation_id,
+        unit=unit,
+        unit_file=_validate_absolute_path(_require_str(raw, "unit_file")),
+        script=_validate_absolute_path(_require_str(raw, "script")),
+        dropin=_validate_absolute_path(_require_str(raw, "dropin")),
+        dropin_content=dropin_content,
+        mount_target=mount_target,
+        defective_unit_markers=unit_markers,
+        defective_script_markers=script_markers,
+        ordered_script_markers=ordered_markers,
+        vendor_exec_start=vendor_exec_start,
+        desired_exec_start=desired_exec_start,
     )
 
 
