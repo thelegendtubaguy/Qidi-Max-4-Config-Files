@@ -61,6 +61,11 @@ BANNED_SLICER_COMMANDS = {
     "SET_INPUT_SHAPER": "Klipper saved input-shaper calibration remains authoritative; slicer G-code must not override it.",
 }
 
+BANNED_SLICER_SNIPPETS = {
+    "BED_MESH_PROFILE": "Print-start bed-mesh selection is controlled by persistent Klipper state, not slicer G-code.",
+    "TLTG_START_BED_MESH_PROFILE": "Print-start bed-mesh selection is controlled by persistent Klipper state, not slicer G-code.",
+}
+
 QIDISTUDIO_BANNED_SNIPPETS = {
     "activate_air_filtration_on_completion[": "QIDI Studio rejects indexed completion-air-filtration placeholders in end G-code; keep them out of the QIDI Studio pack.",
     "complete_print_exhaust_fan_speed[": "QIDI Studio rejects indexed completion-air-filtration placeholders in end G-code; keep them out of the QIDI Studio pack.",
@@ -165,6 +170,13 @@ def validate_repo(
 
     for path in checked_files:
         failures.extend(validate_qidistudio_compatibility(repo_root, path))
+        for line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
+            line = raw_line.split(";", 1)[0].upper()
+            for snippet, reason in BANNED_SLICER_SNIPPETS.items():
+                if snippet in line:
+                    failures.append(
+                        f"{path.relative_to(repo_root)}:{line_number}: banned slicer G-code '{snippet}': {reason}"
+                    )
         for line_number, command, segment, command_end in iter_commands(path):
             banned_reason = BANNED_SLICER_COMMANDS.get(command)
             if banned_reason:

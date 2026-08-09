@@ -155,9 +155,10 @@ class OptimizedMacroContractTests(unittest.TestCase):
             start_prep,
             "_TLTG_ENSURE_TOOL_MAPPINGS",
             "SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_NOZZLE_COOLDOWN_START VARIABLE=reset_tool_mappings VALUE=0",
-            "G31",
+            "SAVE_VARIABLE VARIABLE=retained_tool_ready VALUE=0",
             "{% if reuse_loaded %}",
         )
+        self.assertNotIn("\n  G31\n", f"\n{start_prep}\n")
 
         end_prep = self._macro_gcode("OPTIMIZED_END_PRINT_FILAMENT_PREP")
         self.assert_ordered(
@@ -208,6 +209,80 @@ class OptimizedMacroContractTests(unittest.TestCase):
         z_home_gcode = self._macro_gcode("_OPTIMIZED_G29_HOME_Z_OR_FULL")
         self.assertIn("_OPTIMIZED_HOME_Z_FROM_SAFE_POINT", z_home_gcode)
         self.assertNotIn("G28.6245197 Z", z_home_gcode)
+
+    def test_start_mesh_preparation_uses_optional_saved_profile(self):
+        helper = self._macro_gcode("_OPTIMIZED_PREPARE_PRINT_MESH")
+        self.assertIn(
+            "profile = printer.save_variables.variables.tltg_start_bed_mesh_profile|default('')|string",
+            helper,
+        )
+        self.assertNotIn("tltg_start_bed_mesh_profile|default('')|string|trim", helper)
+        self.assertIn("command_profile = profile|replace", helper)
+        self.assertGreaterEqual(helper.count("|replace("), 2)
+
+        saved = helper[helper.index("{% if profile %}") : helper.index("{% else %}")]
+        adaptive = helper[helper.index("{% else %}") :]
+        self.assertEqual(saved.count("action_respond_info"), 1)
+        self.assertIn("saved bed mesh profile", saved)
+        self.assertIn("% profile", saved)
+        self.assert_ordered(
+            saved,
+            "action_respond_info",
+            "G32",
+            "SET_STEPPER_ENABLE STEPPER=extruder enable=0",
+            "BED_MESH_CLEAR",
+            'BED_MESH_PROFILE LOAD="{command_profile}"',
+        )
+        self.assertNotIn("SAVE_VARIABLE", saved)
+        self.assertNotIn("BED_MESH_CALIBRATE", saved)
+        self.assertNotIn("SAVE_CONFIG_QD", saved)
+
+        self.assertEqual(adaptive.count("action_respond_info"), 1)
+        self.assertIn("adaptive KAMP bed mesh", adaptive)
+        self.assert_ordered(
+            adaptive,
+            "action_respond_info",
+            "G31",
+            "SET_STEPPER_ENABLE STEPPER=extruder enable=0",
+            "BED_MESH_CLEAR",
+            "_OPTIMIZED_G29_HOME_Z_OR_FULL",
+            "BED_MESH_CALIBRATE PROFILE=kamp",
+            "SAVE_VARIABLE VARIABLE=profile_name VALUE='\"kamp\"'",
+            "G4 P500",
+            "SAVE_CONFIG_QD",
+        )
+        self.assertNotIn("BED_MESH_PROFILE LOAD=", adaptive)
+
+        start = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
+        self.assertEqual(start.count("_OPTIMIZED_PREPARE_PRINT_MESH"), 3)
+        self.assertNotIn("BED_MESH_CALIBRATE", start)
+        self.assertNotIn("BED_MESH_PROFILE LOAD=", start)
+        for branch in (
+            start[start.index("{% if reuse_loaded %}") : start.index("{% elif box_enabled %}")],
+            start[start.index("{% elif box_enabled %}") : start.index("{% else %}")],
+            start[start.index("{% else %}") :],
+        ):
+            self.assert_ordered(
+                branch,
+                "Z_TILT_ADJUST",
+                "M400",
+                "SET_PRINT_SUB_STATUS SUB_STATUS=auto_bed_adjust",
+                "_OPTIMIZED_PREPARE_PRINT_MESH",
+                "M1002 A1",
+                "ENABLE_ALL_SENSOR",
+            )
+
+    def test_slicer_start_keeps_mesh_selection_printer_side(self):
+        expected_calls = {
+            "orcaslicer_gcode/start.gcode": "OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]",
+            "qidistudio_gcode/start.gcode": "OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]",
+        }
+        for relative_path, expected_call in expected_calls.items():
+            gcode = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertEqual(gcode.count("OPTIMIZED_START_PRINT_FILAMENT_PREP"), 1)
+            self.assertIn(expected_call, gcode)
+            self.assertNotIn("BED_MESH_PROFILE", gcode)
+            self.assertNotIn("tltg_start_bed_mesh_profile", gcode)
 
     def test_z_home_uses_fast_randomized_center_target(self):
         globals_text = (OPTIMIZED_MACRO_ROOT / "globals.cfg").read_text(encoding="utf-8")
@@ -472,10 +547,10 @@ class OptimizedMacroContractTests(unittest.TestCase):
             no_box_gcode,
             "OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE TARGET={scrape_target}",
             "Z_TILT_ADJUST",
-            "BED_MESH_CLEAR",
-            "_OPTIMIZED_G29_HOME_Z_OR_FULL",
-            "BED_MESH_CALIBRATE PROFILE=kamp",
+            "M400",
+            "_OPTIMIZED_PREPARE_PRINT_MESH",
         )
+        self.assertNotIn("BED_MESH_CALIBRATE", no_box_gcode)
 
         wipe_gcode = self._macro_gcode("OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE")
         self.assertNotIn("G1 E", wipe_gcode)
