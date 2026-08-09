@@ -86,7 +86,7 @@ TLTG_RESET_TOOL_MAPPINGS
 
 ### Print-start bed mesh
 
-Optimized print start calibrates a fresh adaptive KAMP mesh by default. To reuse an existing Klipper bed-mesh profile for every optimized start, save its exact name from the Klipper console:
+By default this calibrates a fresh adaptive KAMP mesh by default. To reuse an existing Klipper bed-mesh profile for every optimized start, save its exact name from the Klipper console:
 
 ```gcode
 SAVE_VARIABLE VARIABLE=tltg_start_bed_mesh_profile VALUE='"default"'
@@ -98,7 +98,7 @@ Restore fresh adaptive calibration by saving an empty value:
 SAVE_VARIABLE VARIABLE=tltg_start_bed_mesh_profile VALUE='""'
 ```
 
-The setting applies to existing sliced files and both slicer packs. The console reports whether start preparation is loading the named profile or calibrating a fresh adaptive mesh. A configured profile must already exist; Klipper stops print preparation if it cannot load the name.
+The setting applies to existing sliced files and requires no change to slicer gcode. The console reports whether start preparation is loading the named profile or calibrating a fresh adaptive mesh. A configured profile must already exist; Klipper stops print preparation if it cannot load the name.
 
 ### Filament runout sensor
 
