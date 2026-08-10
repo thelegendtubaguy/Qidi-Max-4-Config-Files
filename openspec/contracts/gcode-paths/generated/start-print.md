@@ -38,6 +38,8 @@ Forbidden patterns:
 - `PURGETEMP=[nozzle_temperature_initial_layer]`
 - `SET_INPUT_SHAPER`
 - `G1 E-0.2 F1800`
+- `BED_MESH_PROFILE`
+- `tltg_start_bed_mesh_profile`
 
 ### QIDI Studio start
 
@@ -72,6 +74,8 @@ Forbidden patterns:
 - `PURGETEMP=[nozzle_temperature_initial_layer]`
 - `SET_INPUT_SHAPER`
 - `G1 E-0.2 F1800`
+- `BED_MESH_PROFILE`
+- `tltg_start_bed_mesh_profile`
 
 ## Branches
 
@@ -79,18 +83,16 @@ Forbidden patterns:
 
 Condition: `all optimized starts`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:217-249`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:217-248`
 
 Direct visible macro calls in branch slice:
 
 - `_TLTG_ENSURE_TOOL_MAPPINGS`
-- `G31`
 
 Ordered invariants:
 
 - `_TLTG_ENSURE_TOOL_MAPPINGS`
 - `SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_NOZZLE_COOLDOWN_START VARIABLE=reset_tool_mappings VALUE=0`
-- `G31`
 - `SAVE_VARIABLE VARIABLE=retained_tool_ready VALUE=0`
 
 Forbidden patterns:
@@ -102,7 +104,7 @@ Forbidden patterns:
 
 Condition: `reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:250-293`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:249-286`
 
 Direct visible macro calls in branch slice:
 
@@ -115,8 +117,7 @@ Direct visible macro calls in branch slice:
 - `OPTIMIZED_WAIT_HOTEND`
 - `M106`
 - `_OPTIMIZED_REPORT_BED_TEMP`
-- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
-- `BED_MESH_CALIBRATE`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002`
 - `ENABLE_ALL_SENSOR`
 
@@ -132,7 +133,7 @@ Ordered invariants:
 - `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
-- `BED_MESH_CALIBRATE PROFILE=kamp`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002 A1`
 - `ENABLE_ALL_SENSOR`
 
@@ -147,7 +148,7 @@ Forbidden patterns:
 
 Condition: `box_enabled && !reuse_loaded`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:294-343`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:287-330`
 
 Direct visible macro calls in branch slice:
 
@@ -158,8 +159,7 @@ Direct visible macro calls in branch slice:
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
 - `_OPTIMIZED_REPORT_BED_TEMP`
-- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
-- `BED_MESH_CALIBRATE`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002`
 - `ENABLE_ALL_SENSOR`
 
@@ -175,7 +175,7 @@ Ordered invariants:
 - `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
-- `BED_MESH_CALIBRATE PROFILE=kamp`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002 A1`
 - `ENABLE_ALL_SENSOR`
 
@@ -188,7 +188,7 @@ Forbidden patterns:
 
 Condition: `!box_available || !enable_box`
 
-Source: `installer/klipper/tltg-optimized-macros/filament.cfg:344-384`
+Source: `installer/klipper/tltg-optimized-macros/filament.cfg:331-365`
 
 Direct visible macro calls in branch slice:
 
@@ -199,8 +199,7 @@ Direct visible macro calls in branch slice:
 - `OPTIMIZED_WAIT_BED`
 - `OPTIMIZED_WAIT_CHAMBER`
 - `_OPTIMIZED_REPORT_BED_TEMP`
-- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
-- `BED_MESH_CALIBRATE`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002`
 - `ENABLE_ALL_SENSOR`
 
@@ -212,7 +211,7 @@ Ordered invariants:
 - `_OPTIMIZED_REPORT_BED_TEMP`
 - `Z_TILT_ADJUST`
 - `M400`
-- `BED_MESH_CALIBRATE PROFILE=kamp`
+- `_OPTIMIZED_PREPARE_PRINT_MESH`
 - `M1002 A1`
 - `ENABLE_ALL_SENSOR`
 
@@ -222,6 +221,58 @@ Forbidden patterns:
 - `OPTIMIZED_EXTRUSION_AND_FLUSH`
 - `CLEAR_NOZZLE`
 - `G1 E250`
+
+### saved_mesh_profile
+
+Condition: `tltg_start_bed_mesh_profile is non-empty`
+
+Source: `installer/klipper/tltg-optimized-macros/bed_mesh.cfg:18-23`
+
+Direct visible macro calls in branch slice:
+
+- `G32`
+
+Ordered invariants:
+
+- `action_respond_info("Loading saved bed mesh profile: %s" % profile)`
+- `G32`
+- `SET_STEPPER_ENABLE STEPPER=extruder enable=0`
+- `BED_MESH_CLEAR`
+- `BED_MESH_PROFILE LOAD="{command_profile}"`
+
+Forbidden patterns:
+
+- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
+- `BED_MESH_CALIBRATE`
+- `SAVE_CONFIG_QD`
+
+### fresh_adaptive_mesh
+
+Condition: `tltg_start_bed_mesh_profile is absent or empty`
+
+Source: `installer/klipper/tltg-optimized-macros/bed_mesh.cfg:24-35`
+
+Direct visible macro calls in branch slice:
+
+- `G31`
+- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
+- `BED_MESH_CALIBRATE`
+
+Ordered invariants:
+
+- `action_respond_info("Calibrating fresh adaptive KAMP bed mesh")`
+- `G31`
+- `SET_STEPPER_ENABLE STEPPER=extruder enable=0`
+- `BED_MESH_CLEAR`
+- `_OPTIMIZED_G29_HOME_Z_OR_FULL`
+- `BED_MESH_CALIBRATE PROFILE=kamp`
+- `SAVE_VARIABLE VARIABLE=profile_name VALUE='"kamp"'`
+- `G4 P500`
+- `SAVE_CONFIG_QD`
+
+Forbidden patterns:
+
+- `BED_MESH_PROFILE LOAD=`
 
 ### rear_bed_scrape_motion
 
