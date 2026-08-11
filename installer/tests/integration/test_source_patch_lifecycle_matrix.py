@@ -136,6 +136,30 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 self.assertEqual(entry.original_bytes, stock_source)
                 self.assertEqual(entry.original_sha256, hashlib.sha256(stock_source).hexdigest())
 
+    def test_install_initializes_absent_filament_retention_and_preserves_zero(self):
+        for existing, expected in ((None, "1"), ("0", "0")):
+            with self.subTest(existing=existing):
+                printer_root, paths, _ = self._fixture("01.01.06.03")
+                saved_variables_path = printer_root / "config/saved_variables.cfg"
+                if existing is not None:
+                    text = saved_variables_path.read_text(encoding="utf-8")
+                    saved_variables_path.write_text(
+                        text + f"tltg_keep_loaded_between_prints = {existing}\n",
+                        encoding="utf-8",
+                    )
+
+                self._run_install(paths)
+
+                saved_variables = saved_variables_path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        saved_variables,
+                        "Variables",
+                        "tltg_keep_loaded_between_prints",
+                    ).value,
+                    expected,
+                )
+
     def test_noninteractive_box_reconciliation_adds_missing_mappings_without_replacing_existing_ones(self):
         printer_root, paths, _ = self._fixture("01.01.06.03")
         saved_variables_path = printer_root / "config/saved_variables.cfg"
@@ -706,6 +730,17 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 )
                 self.assertFalse(
                     (printer_root / "config/tltg_optimized_state.yaml").exists()
+                )
+                saved_variables = (
+                    printer_root / "config/saved_variables.cfg"
+                ).read_text(encoding="utf-8")
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        saved_variables,
+                        "Variables",
+                        "tltg_keep_loaded_between_prints",
+                    ).value,
+                    "1",
                 )
 
 

@@ -55,6 +55,38 @@ class ToolSlotAlignmentOpportunity:
     mismatches: tuple[ToolSlotMismatch, ...]
 
 
+def maybe_initialize_filament_retention(
+    *,
+    paths: RuntimePaths,
+    reporter,
+    journal,
+) -> bool:
+    saved_variables_path = paths.config_root / "saved_variables.cfg"
+    text = (
+        klipper_cfg.read_text(saved_variables_path)
+        if saved_variables_path.exists()
+        else "[Variables]\n"
+    )
+    try:
+        klipper_cfg.resolve_unique_option(
+            text, "Variables", "tltg_keep_loaded_between_prints"
+        )
+    except klipper_cfg.TargetResolutionError as exc:
+        if exc.reason != "missing":
+            raise
+    else:
+        reporter.debug(event="filament_retention_default.preserved")
+        return False
+
+    new_text = set_saved_variable(
+        text, "tltg_keep_loaded_between_prints", "1"
+    )
+    journal.note_write()
+    atomic_write_text(saved_variables_path, new_text)
+    reporter.line(messages.FILAMENT_RETENTION_DEFAULT_ENABLED)
+    return True
+
+
 def maybe_prompt_enable_box(
     *,
     paths: RuntimePaths,
