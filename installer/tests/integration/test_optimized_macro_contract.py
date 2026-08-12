@@ -369,6 +369,33 @@ class OptimizedMacroContractTests(unittest.TestCase):
         )
 
 
+    def test_filament_retention_uses_saved_preference(self):
+        preference_lookup = (
+            "keep_loaded_between_prints = "
+            "svv.tltg_keep_loaded_between_prints|default(0)|int == 1"
+        )
+        start_gcode = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
+        end_gcode = self._macro_gcode("OPTIMIZED_END_PRINT_FILAMENT_PREP")
+
+        self.assertIn(preference_lookup, start_gcode)
+        self.assertIn(preference_lookup, end_gcode)
+        self.assertIn("reuse_loaded = keep_loaded_between_prints and box_enabled", start_gcode)
+        self.assertIn("keep_loaded = keep_loaded_between_prints and box_enabled", end_gcode)
+        self.assertNotIn("opt.keep_loaded_between_prints", start_gcode)
+        self.assertNotIn("opt.keep_loaded_between_prints", end_gcode)
+
+        globals_text = (OPTIMIZED_MACRO_ROOT / "globals.cfg").read_text(encoding="utf-8")
+        self.assertNotIn("variable_keep_loaded_between_prints", globals_text)
+
+        for relative_path in (
+            "orcaslicer_gcode/start.gcode",
+            "qidistudio_gcode/start.gcode",
+            "orcaslicer_gcode/end.gcode",
+            "qidistudio_gcode/end.gcode",
+        ):
+            slicer_gcode = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertNotIn("tltg_keep_loaded_between_prints", slicer_gcode)
+
     def test_retained_filament_tracks_active_box_sync_slot(self):
         start_gcode = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")
         self.assertIn("slot_sync = svv.slot_sync|default('slot-1')", start_gcode)

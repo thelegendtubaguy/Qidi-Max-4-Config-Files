@@ -100,6 +100,29 @@ SAVE_VARIABLE VARIABLE=tltg_start_bed_mesh_profile VALUE='""'
 
 The setting applies to existing sliced files and requires no change to slicer gcode. The console reports whether start preparation is loading the named profile or calibrating a fresh adaptive mesh. A configured profile must already exist; Klipper stops print preparation if it cannot load the name.
 
+### End-of-print filament handling
+
+The installer sets `tltg_keep_loaded_between_prints` to `1` if the setting does not already exist. That makes filament retention the default after installation.
+
+The behavior is straightforward:
+
+- `1`: Keep the current QIDI Box filament loaded after a completed print.
+- `0` or not set: Cut and unload the filament after a completed print.
+
+To disable filament retention and use the stock-style cut-and-unload behavior:
+
+```gcode
+SAVE_VARIABLE VARIABLE=tltg_keep_loaded_between_prints VALUE=0
+```
+
+To turn filament retention back on:
+
+```gcode
+SAVE_VARIABLE VARIABLE=tltg_keep_loaded_between_prints VALUE=1
+```
+
+The installer preserves an existing setting during updates. The setting survives Klipper restarts, works with existing sliced files, and does not require any slicer G-code changes.
+
 ### Filament runout sensor
 
 ```gcode
