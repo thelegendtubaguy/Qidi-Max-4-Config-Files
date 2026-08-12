@@ -40,6 +40,7 @@ Forbidden patterns:
 - `G1 E-0.2 F1800`
 - `BED_MESH_PROFILE`
 - `tltg_start_bed_mesh_profile`
+- `tltg_keep_loaded_between_prints`
 - `M140 S[bed_temperature_initial_layer_single]
 M141 S[chamber_temperature]
 G29.0`
@@ -79,6 +80,7 @@ Forbidden patterns:
 - `G1 E-0.2 F1800`
 - `BED_MESH_PROFILE`
 - `tltg_start_bed_mesh_profile`
+- `tltg_keep_loaded_between_prints`
 - `M140 S[bed_temperature_initial_layer_single]
 M141 S[chamber_temperatures]
 G29.0`
@@ -234,6 +236,7 @@ Direct visible macro calls in branch slice:
 
 Ordered invariants:
 
+- `keep_loaded_between_prints = svv.tltg_keep_loaded_between_prints|default(0)|int == 1`
 - `_TLTG_ENSURE_TOOL_MAPPINGS`
 - `SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_NOZZLE_COOLDOWN_START VARIABLE=reset_tool_mappings VALUE=0`
 - `SAVE_VARIABLE VARIABLE=retained_tool_ready VALUE=0`
@@ -245,7 +248,7 @@ Forbidden patterns:
 
 ### retained_filament_reuse
 
-Condition: `reuse_loaded`
+Condition: `tltg_keep_loaded_between_prints == 1 and retained physical state is proven`
 
 Source: `installer/klipper/tltg-optimized-macros/filament.cfg:249-286`
 
@@ -289,7 +292,7 @@ Forbidden patterns:
 
 ### box_fresh_load
 
-Condition: `box_enabled && !reuse_loaded`
+Condition: `box_enabled and retention is disabled or retained physical state is not proven`
 
 Source: `installer/klipper/tltg-optimized-macros/filament.cfg:287-330`
 

@@ -95,6 +95,7 @@ ENABLE_QIDI_BOX_PROMPT = "We see {box_count} QIDI Box unit(s) recorded in saved_
 ENABLE_QIDI_BOX_PROMPT_INSTRUCTION = "Type Y/YES to set enable_box = 1 or N/NO to leave it disabled. This is a runtime saved-variable change, not an optimized-config setting."
 ENABLE_QIDI_BOX_DECLINED = "QIDI Box support left disabled."
 ENABLE_QIDI_BOX_ENABLED = "QIDI Box support enabled in saved_variables.cfg."
+FILAMENT_RETENTION_DEFAULT_ENABLED = "End-of-print QIDI Box filament retention enabled in saved_variables.cfg."
 REQUIRED_TOOL_SLOT_MAPPINGS_WRITTEN = "Added {count} missing QIDI Box tool-slot mapping(s) to saved_variables.cfg."
 REQUIRED_TOOL_SLOT_RECONCILED = "QIDI Box count changed to {box_count}; added {count} missing tool-slot mapping(s) to saved_variables.cfg."
 REQUIRED_TOOL_SLOT_RECONCILE_SKIPPED_ACTIVE_PRINT = "QIDI Box tool-slot reconcile skipped because the printer is busy."
