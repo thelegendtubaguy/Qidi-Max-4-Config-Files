@@ -14,7 +14,7 @@ Ordered invariants:
 - `SET_PRINT_MAIN_STATUS MAIN_STATUS=print_start`
 - `M1002 R1`
 - `G29.0`
-- `OPTIMIZED_PRINT_START_HOME`
+- `OPTIMIZED_PRINT_START_HOME BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperature]`
 - `T[initial_tool]`
 - `G90`
@@ -41,6 +41,9 @@ Forbidden patterns:
 - `BED_MESH_PROFILE`
 - `tltg_start_bed_mesh_profile`
 - `tltg_keep_loaded_between_prints`
+- `M140 S[bed_temperature_initial_layer_single]
+M141 S[chamber_temperature]
+G29.0`
 
 ### QIDI Studio start
 
@@ -51,7 +54,7 @@ Ordered invariants:
 - `SET_PRINT_MAIN_STATUS MAIN_STATUS=print_start`
 - `M1002 R1`
 - `G29.0`
-- `OPTIMIZED_PRINT_START_HOME`
+- `OPTIMIZED_PRINT_START_HOME BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]`
 - `OPTIMIZED_START_PRINT_FILAMENT_PREP EXTRUDER=[initial_no_support_extruder] FIRSTLAYERTEMP=[nozzle_temperature_initial_layer] PURGETEMP={nozzle_temperature_range_high[initial_tool]} BEDTEMP=[bed_temperature_initial_layer_single] CHAMBER=[chamber_temperatures]`
 - `T[initial_tool]`
 - `G90`
@@ -78,8 +81,148 @@ Forbidden patterns:
 - `BED_MESH_PROFILE`
 - `tltg_start_bed_mesh_profile`
 - `tltg_keep_loaded_between_prints`
+- `M140 S[bed_temperature_initial_layer_single]
+M141 S[chamber_temperatures]
+G29.0`
 
 ## Branches
+
+### staggered_start_settings
+
+Condition: `all optimized starts`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:65-72`
+
+Direct visible macro calls in branch slice:
+
+- none
+
+Ordered invariants:
+
+- `{% set svv = printer.save_variables.variables %}`
+- `svv.tltg_staggered_start_heating|default(opt.staggered_start_heating)|int`
+- `([svv.tltg_staggered_start_heating_dwell_seconds|default(opt.staggered_start_heating_dwell_seconds)|float, 0]|max)`
+
+Forbidden patterns:
+
+- `SAVE_VARIABLE`
+
+### staggered_explicit_dispatch
+
+Condition: `staggered_start_heating && BEDTEMP or CHAMBER is provided`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:75-76`
+
+Direct visible macro calls in branch slice:
+
+- `_OPTIMIZED_STAGGERED_START_EXPLICIT`
+
+Ordered invariants:
+
+- `_OPTIMIZED_STAGGERED_START_EXPLICIT BEDTEMP={bed_target} CHAMBER={chamber_target} PROBETEMP={probe_target} DWELL={dwell_seconds}`
+
+Forbidden patterns:
+
+- `_OPTIMIZED_STAGGERED_START_ACTIVE`
+
+### staggered_active_target_compatibility
+
+Condition: `staggered_start_heating && prior no-argument slicer invocation`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:78-78`
+
+Direct visible macro calls in branch slice:
+
+- `_OPTIMIZED_STAGGERED_START_ACTIVE`
+
+Ordered invariants:
+
+- `_OPTIMIZED_STAGGERED_START_ACTIVE PROBETEMP={probe_target} DWELL={dwell_seconds}`
+
+Forbidden patterns:
+
+- `_OPTIMIZED_STAGGERED_START_EXPLICIT`
+
+### concurrent_start_heating
+
+Condition: `staggered_start_heating is disabled`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:81-90`
+
+Direct visible macro calls in branch slice:
+
+- `m140`
+- `m141`
+- `m104`
+- `g28`
+
+Ordered invariants:
+
+- `M140 S{bed_target}`
+- `M141 S{chamber_target}`
+- `M104 S{probe_target}`
+- `G28`
+
+Forbidden patterns:
+
+- `OPTIMIZED_WAIT_BED`
+- `OPTIMIZED_WAIT_CHAMBER`
+- `G4 P{dwell_ms}`
+
+### staggered_explicit_heating
+
+Condition: `explicit targets with staggered heating enabled`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:6-28`
+
+Direct visible macro calls in branch slice:
+
+- `m104`
+- `OPTIMIZED_WAIT_BED`
+- `OPTIMIZED_WAIT_CHAMBER`
+
+Ordered invariants:
+
+- `M104 S0`
+- `SET_HEATER_TEMPERATURE HEATER=chamber TARGET=0`
+- `OPTIMIZED_WAIT_BED S={bed_target}`
+- `G4 P{dwell_ms}`
+- `OPTIMIZED_WAIT_CHAMBER S={chamber_target}`
+- `G4 P{dwell_ms}`
+- `M104 S{probe_target}`
+
+Forbidden patterns:
+
+- `TEMPERATURE_WAIT SENSOR=heater_bed`
+- `SET_HEATER_TEMPERATURE HEATER=chamber TARGET={chamber_target}`
+- `G28`
+
+### staggered_active_target_heating
+
+Condition: `prior no-argument slicer targets with staggered heating enabled`
+
+Source: `installer/klipper/tltg-optimized-macros/start_end.cfg:32-60`
+
+Direct visible macro calls in branch slice:
+
+- `m104`
+
+Ordered invariants:
+
+- `M104 S0`
+- `SET_HEATER_TEMPERATURE HEATER=chamber TARGET=0`
+- `TEMPERATURE_WAIT SENSOR=heater_bed MINIMUM={([bed_target - 1, 0]|max)}`
+- `G4 P{dwell_ms}`
+- `SET_HEATER_TEMPERATURE HEATER=chamber TARGET={chamber_target}`
+- `TEMPERATURE_WAIT SENSOR="heater_generic chamber" MINIMUM={([chamber_target - 3, 0]|max)}`
+- `G4 P{dwell_ms}`
+- `M104 S{probe_target}`
+
+Forbidden patterns:
+
+- `OPTIMIZED_WAIT_BED`
+- `OPTIMIZED_WAIT_CHAMBER`
+- `G28`
 
 ### tool_mapping_reconciliation
 

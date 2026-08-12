@@ -3,6 +3,8 @@
 ## 26.08.09.2
 - Added the persistent `tltg_keep_loaded_between_prints` setting for end-of-print QIDI Box filament handling. Value `1` retains filament; `0` or a missing setting cuts and unloads it.
 - The installer sets the preference to `1` when it is missing and preserves the user's existing value during updates.
+- Added optional bed, chamber, then nozzle startup heating controlled by `tltg_staggered_start_heating`, with a configurable inter-stage dwell.
+- Preserved no-argument `OPTIMIZED_PRINT_START_HOME` compatibility while updated slicer starts pass explicit heater targets.
 
 ## 26.08.09.1
 - Added the persistent `tltg_start_bed_mesh_profile` setting so print start can load a named Klipper bed-mesh profile instead of calibrating a new mesh.
