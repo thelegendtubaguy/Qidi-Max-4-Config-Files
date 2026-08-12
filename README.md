@@ -100,6 +100,23 @@ SAVE_VARIABLE VARIABLE=tltg_start_bed_mesh_profile VALUE='""'
 
 The setting applies to existing sliced files and requires no change to slicer gcode. The console reports whether start preparation is loading the named profile or calibrating a fresh adaptive mesh. A configured profile must already exist; Klipper stops print preparation if it cannot load the name.
 
+### Staggered print-start heating
+
+Staggered heating is disabled by default. Enable bed, chamber, then nozzle warm-up with a 10-second dwell between active stages:
+
+```gcode
+SAVE_VARIABLE VARIABLE=tltg_staggered_start_heating VALUE=1
+SAVE_VARIABLE VARIABLE=tltg_staggered_start_heating_dwell_seconds VALUE=10
+```
+
+Set the dwell to another non-negative number of seconds, or use `0` to retain ordered heating without fixed dwell time. To disable staggered heating:
+
+```gcode
+SAVE_VARIABLE VARIABLE=tltg_staggered_start_heating VALUE=0
+```
+
+You will need to slice files with the latest slicer gcode from this repo (or Orca cloud).
+
 ### Filament runout sensor
 
 ```gcode
