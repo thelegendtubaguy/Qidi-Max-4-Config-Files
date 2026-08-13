@@ -96,6 +96,19 @@ The installer SHALL keep an available QIDI Box usable without claiming ownership
 - **AND** busy or unknown printer state causes no reconciliation writes
 - **AND** saved-variable changes are excluded from installer ownership and uninstall
 
+### Requirement: Default optimized preferences preserve operator values
+The installer SHALL initialize absent optimized saved-variable preferences to release defaults without replacing operator-controlled values.
+
+#### Scenario: Absent retention preference receives the installed default
+- **WHEN** install or update finds no `tltg_keep_loaded_between_prints` entry in Klipper saved variables
+- **THEN** it atomically saves value `1` within the recoverable install transaction
+- **AND** the preference remains outside the installed-state ownership ledger
+
+#### Scenario: Existing retention preference is preserved
+- **WHEN** install or update finds an existing `tltg_keep_loaded_between_prints` value, including `0`
+- **THEN** it leaves that value unchanged
+- **AND** uninstall does not remove or reset it
+
 ### Requirement: Opt-in recoverable host optimization
 The installer SHALL apply host OS optimizations only under explicit persisted policy, preserve recoverable preimages, and keep host-operation failures separate from a verified printer-configuration result.
 

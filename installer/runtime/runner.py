@@ -11,6 +11,7 @@ from .auto_update import (
     maybe_repair_configured_auto_updates,
 )
 from .box_enablement import (
+    maybe_initialize_filament_retention,
     maybe_prompt_align_tool_slots,
     maybe_prompt_enable_box,
     maybe_write_required_tool_slot_variables,
@@ -347,6 +348,11 @@ def _execute_install(
             tracked_trees=1,
         )
 
+        maybe_initialize_filament_retention(
+            paths=paths,
+            reporter=reporter,
+            journal=journal,
+        )
         maybe_prompt_enable_box(
             paths=paths,
             reporter=reporter,

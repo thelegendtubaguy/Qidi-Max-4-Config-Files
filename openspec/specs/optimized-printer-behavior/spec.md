@@ -90,7 +90,7 @@ OrcaSlicer and QIDI Studio packs SHALL implement the same functional print-start
 - **AND** nozzle-temperature Z compensation is applied from a known absolute reference after mesh and offset application
 
 ### Requirement: Filament and QIDI Box state lifecycle
-Optimized macros SHALL keep external-spool runout policy independent from vendor Box recovery, retain filament only when physical Box state is provable, and normalize tool mappings only at safe lifecycle boundaries.
+Optimized macros SHALL keep external-spool runout policy independent from vendor Box recovery, retain filament only when the saved preference equals `1` and physical Box state is provable, and normalize tool mappings only at safe lifecycle boundaries.
 
 #### Scenario: External runout pause is independently switchable
 - **WHEN** automatic external-spool pause is disabled
@@ -98,10 +98,21 @@ Optimized macros SHALL keep external-spool runout policy independent from vendor
 - **AND** QIDI Box runout, reload, status, and resume remain vendor-controlled
 - **AND** the setting returns enabled after Klipper restart
 
+#### Scenario: Absent runtime preference disables retention
+- **WHEN** `tltg_keep_loaded_between_prints` is absent from Klipper saved variables or does not equal `1`
+- **THEN** normal optimized print completion clears retained-filament state and delegates cutting and unloading to the existing QIDI Box sequence
+- **AND** optimized print start does not reuse retained filament
+
 #### Scenario: Retention follows the synchronized physical slot
-- **WHEN** normal end-print retention runs with Box filament loaded
+- **WHEN** `tltg_keep_loaded_between_prints` equals `1`
+- **AND** normal end-print retention runs with Box filament loaded
 - **THEN** retained tool, slot, material, and vendor identity derive from the synchronized physical slot and current mapping
 - **AND** unload clears retained state before vendor unload while preserving caller motion and extrusion modes
+
+#### Scenario: Retention preference is operator-controlled
+- **WHEN** the operator saves `1` or `0` to `tltg_keep_loaded_between_prints`
+- **THEN** subsequent optimized starts and normal completions respectively enable or disable retention until the saved value changes
+- **AND** installation initializes an absent preference to `1` and does not overwrite an existing value
 
 #### Scenario: Start repairs only missing active mappings
 - **WHEN** print start requires active Box mappings
@@ -165,3 +176,34 @@ Optimized configuration SHALL preserve firmware-scoped peripheral ownership, sto
 - **THEN** stock-named macros required by QIDI software remain available
 - **AND** the active vendor Box stack and vendor command names are not redefined
 - **AND** `config/fluidd.cfg` and unproven externally consumed stock globals remain unmodified
+
+### Requirement: Optional staggered print-start heating
+Optimized configuration SHALL provide a default-disabled print-start mode that orders requested heater warm-up as bed, chamber, then nozzle, applies a configurable non-negative dwell between active stages, and preserves the existing start entrypoint for previously installed slicer G-code.
+
+#### Scenario: Default startup behavior remains compatible
+- **WHEN** staggered heating is disabled or not configured
+- **THEN** the established concurrent print-start heating behavior remains active
+- **AND** target-bearing and prior no-argument start invocations both continue through homing and filament preparation without requiring a slicer profile migration
+
+#### Scenario: Target-bearing start uses ordered heating
+- **WHEN** staggered heating is enabled and the start entrypoint receives bed and chamber targets
+- **THEN** the requested bed reaches its startup wait threshold and the configured dwell completes before requested chamber heating begins
+- **AND** the requested chamber reaches its startup wait threshold and the configured dwell completes before nozzle heating begins
+- **AND** the inter-stage dwell defaults to 10 seconds
+- **AND** saved enablement and dwell overrides survive optimized installer updates
+- **AND** homing and subsequent print preparation retain their established probing-temperature and safety behavior
+
+#### Scenario: Zero dwell retains ordered activation
+- **WHEN** staggered heating is enabled and the inter-stage dwell is configured to zero
+- **THEN** no fixed inter-stage delay is added
+- **AND** each requested heater still reaches its startup wait threshold before the next heater is activated
+
+#### Scenario: Prior slicer G-code uses active targets
+- **WHEN** staggered heating is enabled and prior slicer G-code establishes bed and chamber targets before invoking the start entrypoint without temperature arguments
+- **THEN** the optimized start derives the requested stages from the active targets
+- **AND** assumes ordered heater control without rejecting the prior invocation
+
+#### Scenario: Unrequested heater stages are skipped
+- **WHEN** staggered heating is enabled and the bed or chamber target is zero or its heater is unavailable
+- **THEN** that stage is skipped without waiting
+- **AND** the remaining requested stages retain bed-before-chamber-before-nozzle order

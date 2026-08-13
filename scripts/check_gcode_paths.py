@@ -405,10 +405,10 @@ def render_mermaid(report: ContractReport) -> str:
             node_id = f"{entry_id}_step{pattern_index}"
             lines.append(f"  {entry_id} --> {node_id}[{mermaid_label(pattern)}]")
 
-    prep_id = mermaid_node_id("OPTIMIZED_START_PRINT_FILAMENT_PREP")
     for branch in report.branches:
+        source_id = mermaid_node_id(branch.source_macro.name)
         branch_id = mermaid_node_id(f"branch_{branch.name}")
-        lines.append(f"  {prep_id} --> {branch_id}[{mermaid_label(branch.name)}]")
+        lines.append(f"  {source_id} --> {branch_id}[{mermaid_label(branch.name)}]")
         for call in branch.direct_macro_calls:
             call_id = mermaid_node_id(call)
             lines.append(f"  {branch_id} --> {call_id}[{mermaid_label(call)}]")
