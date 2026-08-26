@@ -77,12 +77,12 @@ OrcaSlicer and QIDI Studio packs SHALL implement the same functional print-start
 #### Scenario: Fresh Box filament retains vendor ownership
 - **WHEN** the Box is enabled and retained reuse is not proven
 - **THEN** start delegates feeder, cutter, retry, runout, RFID, and vendor cleaning ownership to the Box stack
-- **AND** optimized purge cleanup and collision-safe rear scraping run before common print preparation
+- **AND** optimized purge cleanup runs before a full-width cable-chain orientation traverse and rear scraping across the stock Y395–Y397 footprint
 
 #### Scenario: External spool avoids Box-only actions
 - **WHEN** the Box is unavailable or disabled
 - **THEN** retained Box state is invalidated and Box load or purge actions are not called
-- **AND** collision-safe non-extruding rear cleaning runs before common print preparation
+- **AND** non-extruding rear cleaning uses the same cable-chain orientation and stock Y395–Y397 scrape footprint before common print preparation
 
 #### Scenario: Prime line remains first-layer aware
 - **WHEN** common preparation completes
