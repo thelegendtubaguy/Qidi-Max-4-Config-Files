@@ -525,7 +525,7 @@ class OptimizedMacroContractTests(unittest.TestCase):
         self.assertNotIn("target, 65", chamber_gcode)
 
 
-    def test_rear_bed_scrape_orients_cable_chain_and_uses_shared_chute_speed(self):
+    def test_rear_bed_scrape_orients_cable_chain_and_uses_stock_coordinates(self):
         globals_text = (OPTIMIZED_MACRO_ROOT / "globals.cfg").read_text(encoding="utf-8")
         self.assertIn("variable_trash_final_approach_speed_xy: 3500", globals_text)
         self.assertIn("variable_rear_scrape_orient_speed_xy: 24000", globals_text)
@@ -543,20 +543,19 @@ class OptimizedMacroContractTests(unittest.TestCase):
             "G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}",
             "G1 X380 F{opt.rear_scrape_orient_speed_xy}",
             "G1 X188 F{opt.rear_scrape_orient_speed_xy}",
-            "G1 Y392 F{opt.trash_final_approach_speed_xy}",
+            "G1 Y395 F{opt.trash_final_approach_speed_xy}",
             "G1 Z-0.2 F480",
             "G1 X15 F200",
-            "G1 Y3",
+            "G1 Y2",
             "G1 X-15",
-            "G1 Y-3",
+            "G1 Y-2",
             "G1 X15",
             "G1 Z10",
             "G1 Y383 F12000",
             "SET_VELOCITY_LIMIT ACCEL={saved_accel}",
         )
-        self.assertNotIn("G1 Y395 F6000", scrape)
-        self.assertNotIn("G1 Y2", scrape)
-        self.assertNotIn("G1 Y-2", scrape)
+        self.assertNotIn("G1 Y392 F{opt.trash_final_approach_speed_xy}", scrape)
+        self.assertNotIn("G1 Y-3", scrape)
 
         wipe = self._macro_gcode("OPTIMIZED_WIPE_AND_SCRAPE_NOZZLE")
         start = self._macro_gcode("OPTIMIZED_START_PRINT_FILAMENT_PREP")

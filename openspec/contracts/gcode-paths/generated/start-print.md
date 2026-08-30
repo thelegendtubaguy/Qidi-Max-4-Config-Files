@@ -438,12 +438,12 @@ Ordered invariants:
 - `G1 Y{km.park_y - 50} F{opt.rear_scrape_orient_speed_xy}`
 - `G1 X380 F{opt.rear_scrape_orient_speed_xy}`
 - `G1 X188 F{opt.rear_scrape_orient_speed_xy}`
-- `G1 Y392 F{opt.trash_final_approach_speed_xy}`
+- `G1 Y395 F{opt.trash_final_approach_speed_xy}`
 - `G1 Z-0.2 F480`
 - `G1 X15 F200`
-- `G1 Y3`
+- `G1 Y2`
 - `G1 X-15`
-- `G1 Y-3`
+- `G1 Y-2`
 - `G1 X15`
 - `G1 Z10`
 - `G1 Y383 F12000`
@@ -451,9 +451,8 @@ Ordered invariants:
 
 Forbidden patterns:
 
-- `G1 Y395 F6000`
-- `G1 Y2`
-- `G1 Y-2`
+- `G1 Y392 F{opt.trash_final_approach_speed_xy}`
+- `G1 Y-3`
 
 ## Macro scope
 
