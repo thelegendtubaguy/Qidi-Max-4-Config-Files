@@ -261,7 +261,7 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
                 self.assertEqual({entry.desired for entry in speeds.values()}, {"100"})
                 self.assertEqual(state.source_patches[0].original_bytes, stock_source)
 
-    def test_auto_update_child_source_activation_advances_checksum_for_all_variants(self):
+    def test_auto_update_child_initializes_defaults_and_advances_checksum_for_all_variants(self):
         for firmware, source_variant, desired_sha256 in SOURCE_CASES:
             with self.subTest(firmware=firmware, source_variant=source_variant):
                 printer_root, _, _ = self._fixture(
@@ -340,6 +340,17 @@ class SourcePatchLifecycleMatrixTests(unittest.TestCase):
 
                 self.assertEqual(result.action, "updated")
                 self.assertEqual(len(child_calls), 1)
+                saved_variables = (printer_root / "config/saved_variables.cfg").read_text(
+                    encoding="utf-8"
+                )
+                self.assertEqual(
+                    klipper_cfg.resolve_unique_option(
+                        saved_variables,
+                        "Variables",
+                        "tltg_keep_loaded_between_prints",
+                    ).value,
+                    "1",
+                )
                 self.assertEqual(
                     json.loads(state_path(paths).read_text(encoding="utf-8"))["latest_checksum"],
                     checksum,
