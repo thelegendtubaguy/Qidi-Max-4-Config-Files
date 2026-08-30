@@ -1,5 +1,9 @@
 # Changelog
 
+## 26.08.29.1
+- Restored the stock QIDI Y395–Y397 rear-bed nozzle scrape footprint after the cable-chain orientation traverse.
+- Prevented intentional end-of-print QIDI Box unloading from triggering a filament-runout pause before heater shutdown, bed lowering, nozzle wiping, and final print cleanup.
+
 ## 26.08.09.2
 - Added the persistent `tltg_keep_loaded_between_prints` setting for end-of-print QIDI Box filament handling. Value `1` retains filament; `0` or a missing setting cuts and unloads it.
 - The installer sets the preference to `1` when it is missing and preserves the user's existing value during updates.
