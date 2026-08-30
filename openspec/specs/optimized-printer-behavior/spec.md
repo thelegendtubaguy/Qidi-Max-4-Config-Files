@@ -101,6 +101,7 @@ Optimized macros SHALL keep external-spool runout policy independent from vendor
 #### Scenario: Absent runtime preference disables retention
 - **WHEN** `tltg_keep_loaded_between_prints` is absent from Klipper saved variables or does not equal `1`
 - **THEN** normal optimized print completion clears retained-filament state and delegates cutting and unloading to the existing QIDI Box sequence
+- **AND** runout sensors are disabled before the intentional end-of-print unload so it cannot pause the remaining shutdown routine
 - **AND** optimized print start does not reuse retained filament
 
 #### Scenario: Retention follows the synchronized physical slot

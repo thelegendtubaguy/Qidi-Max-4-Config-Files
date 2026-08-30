@@ -347,10 +347,13 @@ class OptimizedMacroContractTests(unittest.TestCase):
         end_gcode = self._macro_gcode("OPTIMIZED_END_PRINT_FILAMENT_PREP")
         self.assert_ordered(
             end_gcode,
+            "SET_GCODE_VARIABLE MACRO=OPTIMIZED_END_PRINT_FILAMENT_PREP VARIABLE=retained VALUE=0",
+            "DISABLE_ALL_SENSOR",
             "SAVE_GCODE_STATE NAME=optimized_end_print_filament_prep_state",
             "M83",
             "G1 E-3 F1800",
             "RESTORE_GCODE_STATE NAME=optimized_end_print_filament_prep_state",
+            "OPTIMIZED_UNLOAD_FILAMENT T={tool} CLEANUP=0",
         )
 
         unload_gcode = self._macro_gcode("OPTIMIZED_UNLOAD_FILAMENT")
